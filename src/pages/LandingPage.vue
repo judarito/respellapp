@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { apiRequest, readResponsePayload } from '../lib/api'
+import { apiRequest, buildApiUrl, readResponsePayload } from '../lib/api'
 
 const services = [
   {
@@ -106,8 +106,9 @@ async function handleSubmit() {
   isSubmitting.value = true
 
   try {
-    const response = await fetch('/api/contact', {
+    const response = await fetch(buildApiUrl('/api/contact'), {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
       },

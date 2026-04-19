@@ -20,6 +20,7 @@ Crea un archivo `.env` en la raíz con:
 TURSO_URL=libsql://tu-db.turso.io
 TURSO_TOKEN=tu-token-de-turso
 PORT=3001
+VITE_API_URL=https://respellapp.onrender.com
 ```
 
 También tienes una base en [.env.example](/home/juan/Documentos/Dev/Proyectos/RespellApp/.env.example:1).
@@ -147,6 +148,21 @@ Pasos:
 6. Despliega y prueba `https://tu-servicio.onrender.com/api/health`.
 
 Después de publicar el backend, el frontend en producción debe apuntar a la URL pública de Render para las rutas `/api`.
+
+## Conectar frontend a Render
+
+Para el frontend en producción define:
+
+```bash
+VITE_API_URL=https://respellapp.onrender.com
+```
+
+La app ya usa esa variable desde [src/lib/api.js](/home/juan/Documentos/Dev/Proyectos/RespellApp/src/lib/api.js:1), así que login, catálogo, inscripciones y admin consumirán el backend publicado.
+
+Importante:
+
+- en desarrollo puedes dejar `VITE_API_URL` vacío y seguir usando el proxy de Vite
+- en producción el backend usa cookies `Secure` y `SameSite=None` para que la sesión funcione entre dominios distintos
 
 ## Siguiente fase sugerida
 

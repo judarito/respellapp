@@ -1,3 +1,17 @@
+const apiBaseUrl = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '')
+
+export function buildApiUrl(path) {
+  if (!apiBaseUrl) {
+    return path
+  }
+
+  if (/^https?:\/\//i.test(path)) {
+    return path
+  }
+
+  return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 export async function readResponsePayload(response) {
   const rawText = await response.text()
 
@@ -16,7 +30,7 @@ export async function readResponsePayload(response) {
 }
 
 export async function apiRequest(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(buildApiUrl(path), {
     credentials: 'include',
     ...options,
   })

@@ -48,11 +48,12 @@ export function addDays(date, amount) {
 }
 
 export function serializeSessionCookie(token, maxAgeSeconds) {
+  const sameSitePolicy = process.env.NODE_ENV === 'production' ? 'None' : 'Lax'
   const cookieParts = [
     `${SESSION_COOKIE}=${token}`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${sameSitePolicy}`,
     `Max-Age=${maxAgeSeconds}`,
   ]
 
@@ -64,11 +65,12 @@ export function serializeSessionCookie(token, maxAgeSeconds) {
 }
 
 export function serializeExpiredSessionCookie() {
+  const sameSitePolicy = process.env.NODE_ENV === 'production' ? 'None' : 'Lax'
   const cookieParts = [
     `${SESSION_COOKIE}=`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    `SameSite=${sameSitePolicy}`,
     'Max-Age=0',
   ]
 
