@@ -1,0 +1,1941 @@
+import 'dotenv/config'
+import http from 'node:http'
+import { createClient } from '@libsql/client'
+import {
+  SESSION_COOKIE,
+  SESSION_DURATION_DAYS,
+  addDays,
+  generateSessionToken,
+  hashSessionToken,
+  normalizeEmail,
+  parseCookies,
+  serializeExpiredSessionCookie,
+  serializeSessionCookie,
+  verifyPassword,
+} from './auth.js'
+
+const port = Number(process.env.PORT || 3001)
+const tursoUrl = process.env.TURSO_URL
+const tursoToken = process.env.TURSO_TOKEN
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const allowedCourseModalities = new Set(['virtual', 'presential', 'mixed'])
+const allowedCourseStatuses = new Set(['draft', 'published', 'archived'])
+const allowedCohortStatuses = new Set(['draft', 'published', 'closed', 'cancelled'])
+const allowedEnrollmentStatuses = new Set([
+  'pending',
+  'confirmed',
+  'waitlist',
+  'cancelled',
+  'rejected',
+])
+
+if (!tursoUrl || !tursoToken) {
+  throw new Error('Missing TURSO_URL or TURSO_TOKEN in environment variables.')
+}
+
+const db = createClient({
+  url: tursoUrl,
+  authToken: tursoToken,
+})
+
+async function ensureSchema() {
+  await db.execute('PRAGMA foreign_keys = ON')
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS contact_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      message TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'landing-page',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_token_hash TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS course_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      description TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS courses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category_id INTEGER,
+      title TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      short_description TEXT,
+      description TEXT,
+      learning_objectives TEXT,
+      target_audience TEXT,
+      modality TEXT NOT NULL DEFAULT 'mixed',
+      level TEXT NOT NULL DEFAULT 'all',
+      duration_hours INTEGER NOT NULL DEFAULT 0,
+      cover_image_url TEXT,
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'COP',
+      publication_status TEXT NOT NULL DEFAULT 'draft',
+      published_at TEXT,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (category_id) REFERENCES course_categories(id) ON DELETE SET NULL,
+      FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      CHECK (modality IN ('virtual', 'presential', 'mixed')),
+      CHECK (publication_status IN ('draft', 'published', 'archived')),
+      CHECK (duration_hours >= 0),
+      CHECK (price_cents >= 0)
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS course_cohorts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      course_id INTEGER NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      title TEXT,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      enrollment_open_at TEXT,
+      enrollment_close_at TEXT,
+      capacity INTEGER,
+      seats_reserved INTEGER NOT NULL DEFAULT 0,
+      location TEXT,
+      instructor_name TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      public_url TEXT,
+      price_cents INTEGER,
+      currency TEXT NOT NULL DEFAULT 'COP',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+      CHECK (status IN ('draft', 'published', 'closed', 'cancelled')),
+      CHECK (capacity IS NULL OR capacity >= 0),
+      CHECK (seats_reserved >= 0),
+      CHECK (price_cents IS NULL OR price_cents >= 0)
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS enrollment_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cohort_id INTEGER NOT NULL,
+      course_id INTEGER NOT NULL,
+      full_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT,
+      company TEXT,
+      document_number TEXT,
+      message TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      source TEXT NOT NULL DEFAULT 'web',
+      enrolled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at TEXT,
+      reviewed_by_user_id INTEGER,
+      notes TEXT,
+      FOREIGN KEY (cohort_id) REFERENCES course_cohorts(id) ON DELETE CASCADE,
+      FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+      FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE (cohort_id, email),
+      CHECK (status IN ('pending', 'confirmed', 'waitlist', 'cancelled', 'rejected'))
+    )
+  `)
+}
+
+function sendJson(req, res, statusCode, payload, extraHeaders = {}) {
+  const origin = req.headers.origin
+
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Access-Control-Allow-Origin': origin || '*',
+    Vary: 'Origin',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Credentials': 'true',
+    ...extraHeaders,
+  })
+
+  res.end(JSON.stringify(payload))
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = ''
+
+    req.on('data', (chunk) => {
+      body += chunk
+
+      if (body.length > 1_000_000) {
+        reject(new Error('Payload too large'))
+        req.destroy()
+      }
+    })
+
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {})
+      } catch {
+        reject(new Error('Invalid JSON body'))
+      }
+    })
+
+    req.on('error', reject)
+  })
+}
+
+function toTrimmedString(value) {
+  return String(value || '').trim()
+}
+
+function toNullableString(value) {
+  const normalizedValue = toTrimmedString(value)
+  return normalizedValue || null
+}
+
+function toNonNegativeInteger(value, fallback = 0) {
+  if (value === '' || value === null || value === undefined) {
+    return fallback
+  }
+
+  const parsedValue = Number(value)
+
+  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+    return NaN
+  }
+
+  return parsedValue
+}
+
+function toNullableNonNegativeInteger(value) {
+  if (value === '' || value === null || value === undefined) {
+    return null
+  }
+
+  const parsedValue = Number(value)
+
+  if (!Number.isInteger(parsedValue) || parsedValue < 0) {
+    return NaN
+  }
+
+  return parsedValue
+}
+
+function isIsoDateLike(value) {
+  if (!value) {
+    return true
+  }
+
+  return /^\d{4}-\d{2}-\d{2}(?:[T ][\d:.+-Z]*)?$/.test(value)
+}
+
+function slugify(value) {
+  return toTrimmedString(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120)
+}
+
+function generateCohortCode(courseSlug) {
+  const base = (slugify(courseSlug) || 'cohorte').replace(/-/g, '').slice(0, 8).toUpperCase()
+  const timestamp = String(Date.now()).slice(-6)
+  return `${base}-${timestamp}`
+}
+
+function formatCurrencyParts(priceCents, currency = 'COP') {
+  if (priceCents === null || priceCents === undefined) {
+    return null
+  }
+
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0,
+  }).format(Number(priceCents) / 100)
+}
+
+function mapCourseSummary(row) {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    categoryName: row.category_name,
+    title: row.title,
+    slug: row.slug,
+    shortDescription: row.short_description,
+    description: row.description,
+    modality: row.modality,
+    level: row.level,
+    durationHours: row.duration_hours,
+    coverImageUrl: row.cover_image_url,
+    priceCents: row.price_cents,
+    currency: row.currency,
+    publicationStatus: row.publication_status,
+    publishedAt: row.published_at,
+    nextStartDate: row.next_start_date,
+    cohortCount: Number(row.cohort_count || 0),
+    publishedCohortCount: Number(row.published_cohort_count || 0),
+    priceLabel: formatCurrencyParts(row.price_cents, row.currency),
+  }
+}
+
+function mapCohortRow(row) {
+  return {
+    id: row.id,
+    courseId: row.course_id,
+    code: row.code,
+    title: row.title,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    enrollmentOpenAt: row.enrollment_open_at,
+    enrollmentCloseAt: row.enrollment_close_at,
+    capacity: row.capacity,
+    seatsReserved: row.seats_reserved,
+    location: row.location,
+    instructorName: row.instructor_name,
+    status: row.status,
+    publicUrl: row.public_url,
+    priceCents: row.price_cents,
+    currency: row.currency,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    priceLabel: row.price_cents === null ? null : formatCurrencyParts(row.price_cents, row.currency),
+  }
+}
+
+function mapEnrollmentRow(row) {
+  return {
+    id: row.id,
+    cohortId: row.cohort_id,
+    courseId: row.course_id,
+    courseTitle: row.course_title,
+    courseSlug: row.course_slug,
+    cohortTitle: row.cohort_title,
+    cohortCode: row.cohort_code,
+    fullName: row.full_name,
+    email: row.email,
+    phone: row.phone,
+    company: row.company,
+    documentNumber: row.document_number,
+    message: row.message,
+    status: row.status,
+    source: row.source,
+    enrolledAt: row.enrolled_at,
+    reviewedAt: row.reviewed_at,
+    reviewedByUserId: row.reviewed_by_user_id,
+    reviewedByName: row.reviewed_by_name,
+    notes: row.notes,
+  }
+}
+
+function validateContactPayload(payload) {
+  const name = toTrimmedString(payload.name)
+  const email = toTrimmedString(payload.email)
+  const message = toTrimmedString(payload.message)
+
+  if (!name || !email || !message) {
+    return { ok: false, message: 'Todos los campos son obligatorios.' }
+  }
+
+  if (name.length > 120 || email.length > 160 || message.length > 3000) {
+    return { ok: false, message: 'Uno de los campos excede el tamaño permitido.' }
+  }
+
+  if (!emailPattern.test(email)) {
+    return { ok: false, message: 'El correo electrónico no es válido.' }
+  }
+
+  return {
+    ok: true,
+    value: { name, email, message },
+  }
+}
+
+function validateLoginPayload(payload) {
+  const email = normalizeEmail(payload.email)
+  const password = String(payload.password || '')
+
+  if (!email || !password) {
+    return { ok: false, message: 'Correo y contraseña son obligatorios.' }
+  }
+
+  return {
+    ok: true,
+    value: { email, password },
+  }
+}
+
+function validateCategoryPayload(payload) {
+  const name = toTrimmedString(payload.name)
+  const slug = slugify(payload.slug || name)
+  const description = toNullableString(payload.description)
+
+  if (!name) {
+    return { ok: false, message: 'El nombre de la categoría es obligatorio.' }
+  }
+
+  if (!slug) {
+    return { ok: false, message: 'No fue posible generar un slug para la categoría.' }
+  }
+
+  return {
+    ok: true,
+    value: { name, slug, description },
+  }
+}
+
+function validateCoursePayload(payload) {
+  const title = toTrimmedString(payload.title)
+  const slug = slugify(payload.slug || title)
+  const shortDescription = toNullableString(payload.shortDescription)
+  const description = toNullableString(payload.description)
+  const learningObjectives = toNullableString(payload.learningObjectives)
+  const targetAudience = toNullableString(payload.targetAudience)
+  const modality = toTrimmedString(payload.modality || 'mixed').toLowerCase()
+  const level = toTrimmedString(payload.level || 'all').toLowerCase()
+  const durationHours = toNonNegativeInteger(payload.durationHours, 0)
+  const coverImageUrl = toNullableString(payload.coverImageUrl)
+  const priceCents = toNonNegativeInteger(payload.priceCents, 0)
+  const currency = toTrimmedString(payload.currency || 'COP').toUpperCase()
+  const publicationStatus = toTrimmedString(payload.publicationStatus || 'draft').toLowerCase()
+  const categoryId = payload.categoryId ? Number(payload.categoryId) : null
+  const categoryName = toNullableString(payload.categoryName)
+
+  if (!title) {
+    return { ok: false, message: 'El título del curso es obligatorio.' }
+  }
+
+  if (!slug) {
+    return { ok: false, message: 'No fue posible generar un slug para el curso.' }
+  }
+
+  if (!allowedCourseModalities.has(modality)) {
+    return { ok: false, message: 'La modalidad del curso no es válida.' }
+  }
+
+  if (!allowedCourseStatuses.has(publicationStatus)) {
+    return { ok: false, message: 'El estado de publicación del curso no es válido.' }
+  }
+
+  if (Number.isNaN(durationHours) || Number.isNaN(priceCents)) {
+    return { ok: false, message: 'Duración y precio deben ser números enteros mayores o iguales a cero.' }
+  }
+
+  if (categoryId !== null && (!Number.isInteger(categoryId) || categoryId <= 0)) {
+    return { ok: false, message: 'La categoría seleccionada no es válida.' }
+  }
+
+  return {
+    ok: true,
+    value: {
+      title,
+      slug,
+      shortDescription,
+      description,
+      learningObjectives,
+      targetAudience,
+      modality,
+      level,
+      durationHours,
+      coverImageUrl,
+      priceCents,
+      currency,
+      publicationStatus,
+      categoryId,
+      categoryName,
+    },
+  }
+}
+
+function validateCohortPayload(payload, courseSlug = '') {
+  const code = toTrimmedString(payload.code) || generateCohortCode(courseSlug)
+  const title = toNullableString(payload.title)
+  const startDate = toTrimmedString(payload.startDate)
+  const endDate = toNullableString(payload.endDate)
+  const enrollmentOpenAt = toNullableString(payload.enrollmentOpenAt)
+  const enrollmentCloseAt = toNullableString(payload.enrollmentCloseAt)
+  const capacity = toNullableNonNegativeInteger(payload.capacity)
+  const location = toNullableString(payload.location)
+  const instructorName = toNullableString(payload.instructorName)
+  const status = toTrimmedString(payload.status || 'draft').toLowerCase()
+  const publicUrl = toNullableString(payload.publicUrl)
+  const priceCents = toNullableNonNegativeInteger(payload.priceCents)
+  const currency = toTrimmedString(payload.currency || 'COP').toUpperCase()
+
+  if (!startDate) {
+    return { ok: false, message: 'La fecha de inicio de la cohorte es obligatoria.' }
+  }
+
+  if (!allowedCohortStatuses.has(status)) {
+    return { ok: false, message: 'El estado de la cohorte no es válido.' }
+  }
+
+  if (
+    !isIsoDateLike(startDate) ||
+    !isIsoDateLike(endDate) ||
+    !isIsoDateLike(enrollmentOpenAt) ||
+    !isIsoDateLike(enrollmentCloseAt)
+  ) {
+    return { ok: false, message: 'Una de las fechas de la cohorte no tiene un formato válido.' }
+  }
+
+  if (Number.isNaN(capacity) || Number.isNaN(priceCents)) {
+    return { ok: false, message: 'Capacidad y precio de cohorte deben ser números enteros mayores o iguales a cero.' }
+  }
+
+  return {
+    ok: true,
+    value: {
+      code,
+      title,
+      startDate,
+      endDate,
+      enrollmentOpenAt,
+      enrollmentCloseAt,
+      capacity,
+      location,
+      instructorName,
+      status,
+      publicUrl,
+      priceCents,
+      currency,
+    },
+  }
+}
+
+function validateEnrollmentPayload(payload) {
+  const cohortId = Number(payload.cohortId)
+  const fullName = toTrimmedString(payload.fullName)
+  const email = normalizeEmail(payload.email)
+  const phone = toNullableString(payload.phone)
+  const company = toNullableString(payload.company)
+  const documentNumber = toNullableString(payload.documentNumber)
+  const message = toNullableString(payload.message)
+
+  if (!Number.isInteger(cohortId) || cohortId <= 0) {
+    return { ok: false, message: 'Debes seleccionar una cohorte válida.' }
+  }
+
+  if (!fullName || !email) {
+    return { ok: false, message: 'Nombre completo y correo son obligatorios para la inscripción.' }
+  }
+
+  if (!emailPattern.test(email)) {
+    return { ok: false, message: 'El correo ingresado no es válido.' }
+  }
+
+  return {
+    ok: true,
+    value: {
+      cohortId,
+      fullName,
+      email,
+      phone,
+      company,
+      documentNumber,
+      message,
+    },
+  }
+}
+
+function validateEnrollmentAdminPayload(payload) {
+  const status = toTrimmedString(payload.status).toLowerCase()
+  const notes = toNullableString(payload.notes)
+
+  if (!status) {
+    return { ok: false, message: 'Debes indicar un estado para la inscripción.' }
+  }
+
+  if (!allowedEnrollmentStatuses.has(status)) {
+    return { ok: false, message: 'El estado de la inscripción no es válido.' }
+  }
+
+  return {
+    ok: true,
+    value: {
+      status,
+      notes,
+    },
+  }
+}
+
+async function getCurrentSession(req) {
+  const cookies = parseCookies(req.headers.cookie)
+  const rawToken = cookies[SESSION_COOKIE]
+
+  if (!rawToken) {
+    return null
+  }
+
+  const sessionTokenHash = hashSessionToken(rawToken)
+  const result = await db.execute({
+    sql: `
+      SELECT
+        sessions.id,
+        sessions.user_id,
+        sessions.expires_at,
+        users.email,
+        users.name,
+        users.role
+      FROM sessions
+      INNER JOIN users ON users.id = sessions.user_id
+      WHERE sessions.session_token_hash = ?
+        AND datetime(sessions.expires_at) > datetime('now')
+      LIMIT 1
+    `,
+    args: [sessionTokenHash],
+  })
+
+  const session = result.rows[0]
+
+  if (!session) {
+    return null
+  }
+
+  await db.execute({
+    sql: `
+      UPDATE sessions
+      SET last_seen_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `,
+    args: [session.id],
+  })
+
+  return {
+    id: session.id,
+    userId: session.user_id,
+    expiresAt: session.expires_at,
+    user: {
+      id: session.user_id,
+      email: session.email,
+      name: session.name,
+      role: session.role,
+    },
+  }
+}
+
+async function requireSession(req, res) {
+  const session = await getCurrentSession(req)
+
+  if (!session) {
+    sendJson(req, res, 401, { ok: false, message: 'Debes iniciar sesión.' })
+    return null
+  }
+
+  return session
+}
+
+async function createSession(userId) {
+  const rawToken = generateSessionToken()
+  const tokenHash = hashSessionToken(rawToken)
+  const expiresAt = addDays(new Date(), SESSION_DURATION_DAYS).toISOString()
+
+  await db.execute({
+    sql: `
+      INSERT INTO sessions (session_token_hash, user_id, expires_at)
+      VALUES (?, ?, ?)
+    `,
+    args: [tokenHash, userId, expiresAt],
+  })
+
+  return {
+    rawToken,
+    expiresAt,
+    maxAgeSeconds: SESSION_DURATION_DAYS * 24 * 60 * 60,
+  }
+}
+
+async function destroySessionByRequest(req) {
+  const cookies = parseCookies(req.headers.cookie)
+  const rawToken = cookies[SESSION_COOKIE]
+
+  if (!rawToken) {
+    return
+  }
+
+  await db.execute({
+    sql: 'DELETE FROM sessions WHERE session_token_hash = ?',
+    args: [hashSessionToken(rawToken)],
+  })
+}
+
+async function ensureCategoryId(categoryId, categoryName) {
+  if (categoryId) {
+    return categoryId
+  }
+
+  if (!categoryName) {
+    return null
+  }
+
+  const normalizedSlug = slugify(categoryName)
+  const result = await db.execute({
+    sql: `
+      SELECT id
+      FROM course_categories
+      WHERE slug = ?
+      LIMIT 1
+    `,
+    args: [normalizedSlug],
+  })
+
+  const existingCategory = result.rows[0]
+
+  if (existingCategory) {
+    return Number(existingCategory.id)
+  }
+
+  const insertResult = await db.execute({
+    sql: `
+      INSERT INTO course_categories (name, slug)
+      VALUES (?, ?)
+    `,
+    args: [categoryName, normalizedSlug],
+  })
+
+  return Number(insertResult.lastInsertRowid)
+}
+
+async function loadCourseById(courseId) {
+  const result = await db.execute({
+    sql: `
+      SELECT *
+      FROM courses
+      WHERE id = ?
+      LIMIT 1
+    `,
+    args: [courseId],
+  })
+
+  return result.rows[0] || null
+}
+
+async function loadCourseDetails(courseId) {
+  const courseResult = await db.execute({
+    sql: `
+      SELECT
+        c.*,
+        cc.name AS category_name
+      FROM courses c
+      LEFT JOIN course_categories cc ON cc.id = c.category_id
+      WHERE c.id = ?
+      LIMIT 1
+    `,
+    args: [courseId],
+  })
+
+  const course = courseResult.rows[0]
+
+  if (!course) {
+    return null
+  }
+
+  const cohortsResult = await db.execute({
+    sql: `
+      SELECT *
+      FROM course_cohorts
+      WHERE course_id = ?
+      ORDER BY datetime(start_date) ASC, id ASC
+    `,
+    args: [courseId],
+  })
+
+  return {
+    course: {
+      id: course.id,
+      categoryId: course.category_id,
+      categoryName: course.category_name,
+      title: course.title,
+      slug: course.slug,
+      shortDescription: course.short_description,
+      description: course.description,
+      learningObjectives: course.learning_objectives,
+      targetAudience: course.target_audience,
+      modality: course.modality,
+      level: course.level,
+      durationHours: course.duration_hours,
+      coverImageUrl: course.cover_image_url,
+      priceCents: course.price_cents,
+      currency: course.currency,
+      publicationStatus: course.publication_status,
+      publishedAt: course.published_at,
+      createdAt: course.created_at,
+      updatedAt: course.updated_at,
+      priceLabel: formatCurrencyParts(course.price_cents, course.currency),
+    },
+    cohorts: cohortsResult.rows.map(mapCohortRow),
+  }
+}
+
+function isUniqueConstraintError(error) {
+  return String(error.message || '').toLowerCase().includes('unique')
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url || '/', `http://${req.headers.host}`)
+  const publicCourseMatch = url.pathname.match(/^\/api\/courses\/([^/]+)$/)
+  const publicEnrollmentMatch = url.pathname.match(/^\/api\/courses\/([^/]+)\/enroll$/)
+  const adminCourseByIdMatch = url.pathname.match(/^\/api\/admin\/courses\/(\d+)$/)
+  const adminCourseCohortsMatch = url.pathname.match(/^\/api\/admin\/courses\/(\d+)\/cohorts$/)
+  const adminCohortByIdMatch = url.pathname.match(/^\/api\/admin\/cohorts\/(\d+)$/)
+  const adminEnrollmentByIdMatch = url.pathname.match(/^\/api\/admin\/enrollments\/(\d+)$/)
+
+  if (req.method === 'OPTIONS') {
+    return sendJson(req, res, 200, { ok: true })
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/health') {
+    return sendJson(req, res, 200, { ok: true, service: 'respell-api' })
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/auth/session') {
+    try {
+      const session = await getCurrentSession(req)
+
+      if (!session) {
+        return sendJson(req, res, 401, { ok: false, message: 'No authenticated session.' })
+      }
+
+      return sendJson(req, res, 200, { ok: true, user: session.user })
+    } catch (error) {
+      console.error('Error loading session:', error)
+      return sendJson(req, res, 500, { ok: false, message: 'No fue posible validar la sesión.' })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+    try {
+      const payload = await readJsonBody(req)
+      const validation = validateLoginPayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const { email, password } = validation.value
+      const result = await db.execute({
+        sql: `
+          SELECT id, email, password_hash, name, role
+          FROM users
+          WHERE email = ?
+          LIMIT 1
+        `,
+        args: [email],
+      })
+
+      const user = result.rows[0]
+      const isValid = user ? await verifyPassword(password, user.password_hash) : false
+
+      if (!user || !isValid) {
+        return sendJson(req, res, 401, {
+          ok: false,
+          message: 'Credenciales inválidas. Verifica correo y contraseña.',
+        })
+      }
+
+      const session = await createSession(user.id)
+
+      return sendJson(
+        req,
+        res,
+        200,
+        {
+          ok: true,
+          message: 'Sesión iniciada correctamente.',
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+        },
+        {
+          'Set-Cookie': serializeSessionCookie(session.rawToken, session.maxAgeSeconds),
+        },
+      )
+    } catch (error) {
+      console.error('Error logging in:', error)
+      return sendJson(req, res, 500, { ok: false, message: 'No fue posible iniciar sesión.' })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+    try {
+      await destroySessionByRequest(req)
+
+      return sendJson(
+        req,
+        res,
+        200,
+        { ok: true, message: 'Sesión cerrada correctamente.' },
+        { 'Set-Cookie': serializeExpiredSessionCookie() },
+      )
+    } catch (error) {
+      console.error('Error logging out:', error)
+      return sendJson(req, res, 500, { ok: false, message: 'No fue posible cerrar sesión.' })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/contact') {
+    try {
+      const payload = await readJsonBody(req)
+      const validation = validateContactPayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const { name, email, message } = validation.value
+
+      await db.execute({
+        sql: `
+          INSERT INTO contact_requests (name, email, message, source)
+          VALUES (?, ?, ?, ?)
+        `,
+        args: [name, email, message, 'landing-page'],
+      })
+
+      return sendJson(req, res, 201, {
+        ok: true,
+        message: 'Solicitud enviada correctamente. Ya quedó registrada en Turso.',
+      })
+    } catch (error) {
+      console.error('Error saving contact request:', error)
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible guardar la solicitud en este momento.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/courses') {
+    try {
+      const requestedLimit = Number(url.searchParams.get('limit') || 12)
+      const limit =
+        Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : 12
+      const result = await db.execute({
+        sql: `
+          SELECT
+            c.id,
+            c.category_id,
+            c.title,
+            c.slug,
+            c.short_description,
+            c.description,
+            c.modality,
+            c.level,
+            c.duration_hours,
+            c.cover_image_url,
+            c.price_cents,
+            c.currency,
+            c.publication_status,
+            c.published_at,
+            cc.name AS category_name,
+            COUNT(cohort.id) AS cohort_count,
+            SUM(CASE WHEN cohort.status = 'published' THEN 1 ELSE 0 END) AS published_cohort_count,
+            MIN(CASE WHEN cohort.status = 'published' THEN cohort.start_date END) AS next_start_date
+          FROM courses c
+          LEFT JOIN course_categories cc ON cc.id = c.category_id
+          LEFT JOIN course_cohorts cohort ON cohort.course_id = c.id
+          WHERE c.publication_status = 'published'
+          GROUP BY
+            c.id,
+            c.category_id,
+            c.title,
+            c.slug,
+            c.short_description,
+            c.description,
+            c.modality,
+            c.level,
+            c.duration_hours,
+            c.cover_image_url,
+            c.price_cents,
+            c.currency,
+            c.publication_status,
+            c.published_at,
+            cc.name
+          ORDER BY datetime(COALESCE(c.published_at, c.created_at)) DESC, c.id DESC
+          LIMIT ?
+        `,
+        args: [limit],
+      })
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        items: result.rows.map(mapCourseSummary),
+      })
+    } catch (error) {
+      console.error('Error loading public courses:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar el catálogo público de cursos.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && publicCourseMatch) {
+    try {
+      const courseSlug = decodeURIComponent(publicCourseMatch[1])
+      const courseResult = await db.execute({
+        sql: `
+          SELECT
+            c.*,
+            cc.name AS category_name
+          FROM courses c
+          LEFT JOIN course_categories cc ON cc.id = c.category_id
+          WHERE c.slug = ?
+            AND c.publication_status = 'published'
+          LIMIT 1
+        `,
+        args: [courseSlug],
+      })
+
+      const course = courseResult.rows[0]
+
+      if (!course) {
+        return sendJson(req, res, 404, { ok: false, message: 'Curso no encontrado.' })
+      }
+
+      const cohortsResult = await db.execute({
+        sql: `
+          SELECT *
+          FROM course_cohorts
+          WHERE course_id = ?
+            AND status = 'published'
+          ORDER BY datetime(start_date) ASC, id ASC
+        `,
+        args: [course.id],
+      })
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        item: {
+          id: course.id,
+          categoryId: course.category_id,
+          categoryName: course.category_name,
+          title: course.title,
+          slug: course.slug,
+          shortDescription: course.short_description,
+          description: course.description,
+          learningObjectives: course.learning_objectives,
+          targetAudience: course.target_audience,
+          modality: course.modality,
+          level: course.level,
+          durationHours: course.duration_hours,
+          coverImageUrl: course.cover_image_url,
+          priceCents: course.price_cents,
+          currency: course.currency,
+          publicationStatus: course.publication_status,
+          publishedAt: course.published_at,
+          priceLabel: formatCurrencyParts(course.price_cents, course.currency),
+          cohorts: cohortsResult.rows.map(mapCohortRow),
+        },
+      })
+    } catch (error) {
+      console.error('Error loading public course detail:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar el detalle del curso.',
+      })
+    }
+  }
+
+  if (req.method === 'POST' && publicEnrollmentMatch) {
+    try {
+      const courseSlug = decodeURIComponent(publicEnrollmentMatch[1])
+      const payload = await readJsonBody(req)
+      const validation = validateEnrollmentPayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const { cohortId, fullName, email, phone, company, documentNumber, message } = validation.value
+      const courseResult = await db.execute({
+        sql: `
+          SELECT id
+          FROM courses
+          WHERE slug = ?
+            AND publication_status = 'published'
+          LIMIT 1
+        `,
+        args: [courseSlug],
+      })
+
+      const course = courseResult.rows[0]
+
+      if (!course) {
+        return sendJson(req, res, 404, { ok: false, message: 'Curso no disponible para inscripción.' })
+      }
+
+      const cohortResult = await db.execute({
+        sql: `
+          SELECT *
+          FROM course_cohorts
+          WHERE id = ?
+            AND course_id = ?
+            AND status = 'published'
+          LIMIT 1
+        `,
+        args: [cohortId, course.id],
+      })
+
+      const cohort = cohortResult.rows[0]
+
+      if (!cohort) {
+        return sendJson(req, res, 400, { ok: false, message: 'La cohorte seleccionada no está disponible.' })
+      }
+
+      const activeEnrollmentsResult = await db.execute({
+        sql: `
+          SELECT COUNT(*) AS total
+          FROM enrollment_requests
+          WHERE cohort_id = ?
+            AND status IN ('pending', 'confirmed')
+        `,
+        args: [cohortId],
+      })
+
+      const currentActiveEnrollments = Number(activeEnrollmentsResult.rows[0]?.total || 0)
+      const capacity = cohort.capacity === null ? null : Number(cohort.capacity)
+      const initialStatus =
+        capacity !== null && currentActiveEnrollments >= capacity ? 'waitlist' : 'pending'
+
+      await db.execute({
+        sql: `
+          INSERT INTO enrollment_requests (
+            cohort_id,
+            course_id,
+            full_name,
+            email,
+            phone,
+            company,
+            document_number,
+            message,
+            status,
+            source
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          cohortId,
+          course.id,
+          fullName,
+          email,
+          phone,
+          company,
+          documentNumber,
+          message,
+          initialStatus,
+          'web-course-detail',
+        ],
+      })
+
+      return sendJson(req, res, 201, {
+        ok: true,
+        message:
+          initialStatus === 'waitlist'
+            ? 'La cohorte ya no tiene cupos inmediatos. Tu solicitud quedó en lista de espera.'
+            : 'Tu solicitud de inscripción fue registrada correctamente.',
+      })
+    } catch (error) {
+      console.error('Error creating enrollment request:', error)
+
+      if (isUniqueConstraintError(error)) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          message: 'Ya existe una solicitud registrada con este correo para la cohorte seleccionada.',
+        })
+      }
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible registrar la inscripción en este momento.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/contact-requests') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const result = await db.execute(`
+        SELECT id, name, email, message, source, created_at
+        FROM contact_requests
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 100
+      `)
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: session.user,
+        items: result.rows,
+      })
+    } catch (error) {
+      console.error('Error loading contact requests:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar las solicitudes administrativas.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/course-categories') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const result = await db.execute(`
+        SELECT id, name, slug, description, created_at, updated_at
+        FROM course_categories
+        ORDER BY name ASC
+      `)
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: session.user,
+        items: result.rows,
+      })
+    } catch (error) {
+      console.error('Error loading course categories:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar las categorías.',
+      })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/course-categories') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const payload = await readJsonBody(req)
+      const validation = validateCategoryPayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const { name, slug, description } = validation.value
+      const result = await db.execute({
+        sql: `
+          INSERT INTO course_categories (name, slug, description)
+          VALUES (?, ?, ?)
+        `,
+        args: [name, slug, description],
+      })
+
+      return sendJson(req, res, 201, {
+        ok: true,
+        message: 'Categoría creada correctamente.',
+        item: {
+          id: Number(result.lastInsertRowid),
+          name,
+          slug,
+          description,
+        },
+      })
+    } catch (error) {
+      console.error('Error creating category:', error)
+
+      if (isUniqueConstraintError(error)) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          message: 'Ya existe una categoría con ese slug.',
+        })
+      }
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible crear la categoría.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/courses') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const result = await db.execute(`
+        SELECT
+          c.id,
+          c.category_id,
+          c.title,
+          c.slug,
+          c.short_description,
+          c.description,
+          c.modality,
+          c.level,
+          c.duration_hours,
+          c.cover_image_url,
+          c.price_cents,
+          c.currency,
+          c.publication_status,
+          c.published_at,
+          cc.name AS category_name,
+          COUNT(cohort.id) AS cohort_count,
+          SUM(CASE WHEN cohort.status = 'published' THEN 1 ELSE 0 END) AS published_cohort_count,
+          MIN(CASE WHEN cohort.status = 'published' THEN cohort.start_date END) AS next_start_date
+        FROM courses c
+        LEFT JOIN course_categories cc ON cc.id = c.category_id
+        LEFT JOIN course_cohorts cohort ON cohort.course_id = c.id
+        GROUP BY
+          c.id,
+          c.category_id,
+          c.title,
+          c.slug,
+          c.short_description,
+          c.description,
+          c.modality,
+          c.level,
+          c.duration_hours,
+          c.cover_image_url,
+          c.price_cents,
+          c.currency,
+          c.publication_status,
+          c.published_at,
+          cc.name
+        ORDER BY datetime(c.updated_at) DESC, c.id DESC
+      `)
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: session.user,
+        items: result.rows.map(mapCourseSummary),
+      })
+    } catch (error) {
+      console.error('Error loading admin courses:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar los cursos administrativos.',
+      })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/courses') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const payload = await readJsonBody(req)
+      const validation = validateCoursePayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const categoryId = await ensureCategoryId(validation.value.categoryId, validation.value.categoryName)
+      const publishedAt = validation.value.publicationStatus === 'published' ? new Date().toISOString() : null
+
+      const result = await db.execute({
+        sql: `
+          INSERT INTO courses (
+            category_id,
+            title,
+            slug,
+            short_description,
+            description,
+            learning_objectives,
+            target_audience,
+            modality,
+            level,
+            duration_hours,
+            cover_image_url,
+            price_cents,
+            currency,
+            publication_status,
+            published_at,
+            created_by_user_id
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          categoryId,
+          validation.value.title,
+          validation.value.slug,
+          validation.value.shortDescription,
+          validation.value.description,
+          validation.value.learningObjectives,
+          validation.value.targetAudience,
+          validation.value.modality,
+          validation.value.level,
+          validation.value.durationHours,
+          validation.value.coverImageUrl,
+          validation.value.priceCents,
+          validation.value.currency,
+          validation.value.publicationStatus,
+          publishedAt,
+          session.userId,
+        ],
+      })
+
+      const details = await loadCourseDetails(Number(result.lastInsertRowid))
+
+      return sendJson(req, res, 201, {
+        ok: true,
+        message: 'Curso creado correctamente.',
+        item: details,
+      })
+    } catch (error) {
+      console.error('Error creating course:', error)
+
+      if (isUniqueConstraintError(error)) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          message: 'Ya existe un curso con ese slug.',
+        })
+      }
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible crear el curso.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && adminCourseByIdMatch) {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const courseId = Number(adminCourseByIdMatch[1])
+      const details = await loadCourseDetails(courseId)
+
+      if (!details) {
+        return sendJson(req, res, 404, { ok: false, message: 'Curso no encontrado.' })
+      }
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: session.user,
+        item: details,
+      })
+    } catch (error) {
+      console.error('Error loading admin course detail:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar el detalle del curso.',
+      })
+    }
+  }
+
+  if (req.method === 'PUT' && adminCourseByIdMatch) {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const courseId = Number(adminCourseByIdMatch[1])
+      const existingCourse = await loadCourseById(courseId)
+
+      if (!existingCourse) {
+        return sendJson(req, res, 404, { ok: false, message: 'Curso no encontrado.' })
+      }
+
+      const payload = await readJsonBody(req)
+      const validation = validateCoursePayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const categoryId = await ensureCategoryId(validation.value.categoryId, validation.value.categoryName)
+      const publishedAt =
+        validation.value.publicationStatus === 'published'
+          ? existingCourse.published_at || new Date().toISOString()
+          : null
+
+      await db.execute({
+        sql: `
+          UPDATE courses
+          SET
+            category_id = ?,
+            title = ?,
+            slug = ?,
+            short_description = ?,
+            description = ?,
+            learning_objectives = ?,
+            target_audience = ?,
+            modality = ?,
+            level = ?,
+            duration_hours = ?,
+            cover_image_url = ?,
+            price_cents = ?,
+            currency = ?,
+            publication_status = ?,
+            published_at = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `,
+        args: [
+          categoryId,
+          validation.value.title,
+          validation.value.slug,
+          validation.value.shortDescription,
+          validation.value.description,
+          validation.value.learningObjectives,
+          validation.value.targetAudience,
+          validation.value.modality,
+          validation.value.level,
+          validation.value.durationHours,
+          validation.value.coverImageUrl,
+          validation.value.priceCents,
+          validation.value.currency,
+          validation.value.publicationStatus,
+          publishedAt,
+          courseId,
+        ],
+      })
+
+      const details = await loadCourseDetails(courseId)
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        message: 'Curso actualizado correctamente.',
+        item: details,
+      })
+    } catch (error) {
+      console.error('Error updating course:', error)
+
+      if (isUniqueConstraintError(error)) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          message: 'Ya existe otro curso con ese slug.',
+        })
+      }
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible actualizar el curso.',
+      })
+    }
+  }
+
+  if (req.method === 'POST' && adminCourseCohortsMatch) {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const courseId = Number(adminCourseCohortsMatch[1])
+      const course = await loadCourseById(courseId)
+
+      if (!course) {
+        return sendJson(req, res, 404, { ok: false, message: 'Curso no encontrado para crear la cohorte.' })
+      }
+
+      const payload = await readJsonBody(req)
+      const validation = validateCohortPayload(payload, course.slug)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const cohort = validation.value
+
+      const result = await db.execute({
+        sql: `
+          INSERT INTO course_cohorts (
+            course_id,
+            code,
+            title,
+            start_date,
+            end_date,
+            enrollment_open_at,
+            enrollment_close_at,
+            capacity,
+            location,
+            instructor_name,
+            status,
+            public_url,
+            price_cents,
+            currency
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          courseId,
+          cohort.code,
+          cohort.title,
+          cohort.startDate,
+          cohort.endDate,
+          cohort.enrollmentOpenAt,
+          cohort.enrollmentCloseAt,
+          cohort.capacity,
+          cohort.location,
+          cohort.instructorName,
+          cohort.status,
+          cohort.publicUrl,
+          cohort.priceCents,
+          cohort.currency,
+        ],
+      })
+
+      const cohortResult = await db.execute({
+        sql: 'SELECT * FROM course_cohorts WHERE id = ? LIMIT 1',
+        args: [Number(result.lastInsertRowid)],
+      })
+
+      return sendJson(req, res, 201, {
+        ok: true,
+        message: 'Cohorte creada correctamente.',
+        item: mapCohortRow(cohortResult.rows[0]),
+      })
+    } catch (error) {
+      console.error('Error creating cohort:', error)
+
+      if (isUniqueConstraintError(error)) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          message: 'Ya existe una cohorte con ese código.',
+        })
+      }
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible crear la cohorte.',
+      })
+    }
+  }
+
+  if (req.method === 'PUT' && adminCohortByIdMatch) {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const cohortId = Number(adminCohortByIdMatch[1])
+      const currentCohortResult = await db.execute({
+        sql: `
+          SELECT cohort.*, course.slug AS course_slug
+          FROM course_cohorts cohort
+          INNER JOIN courses course ON course.id = cohort.course_id
+          WHERE cohort.id = ?
+          LIMIT 1
+        `,
+        args: [cohortId],
+      })
+
+      const currentCohort = currentCohortResult.rows[0]
+
+      if (!currentCohort) {
+        return sendJson(req, res, 404, { ok: false, message: 'Cohorte no encontrada.' })
+      }
+
+      const payload = await readJsonBody(req)
+      const validation = validateCohortPayload(payload, currentCohort.course_slug)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const cohort = validation.value
+
+      await db.execute({
+        sql: `
+          UPDATE course_cohorts
+          SET
+            code = ?,
+            title = ?,
+            start_date = ?,
+            end_date = ?,
+            enrollment_open_at = ?,
+            enrollment_close_at = ?,
+            capacity = ?,
+            location = ?,
+            instructor_name = ?,
+            status = ?,
+            public_url = ?,
+            price_cents = ?,
+            currency = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `,
+        args: [
+          cohort.code,
+          cohort.title,
+          cohort.startDate,
+          cohort.endDate,
+          cohort.enrollmentOpenAt,
+          cohort.enrollmentCloseAt,
+          cohort.capacity,
+          cohort.location,
+          cohort.instructorName,
+          cohort.status,
+          cohort.publicUrl,
+          cohort.priceCents,
+          cohort.currency,
+          cohortId,
+        ],
+      })
+
+      const updatedResult = await db.execute({
+        sql: 'SELECT * FROM course_cohorts WHERE id = ? LIMIT 1',
+        args: [cohortId],
+      })
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        message: 'Cohorte actualizada correctamente.',
+        item: mapCohortRow(updatedResult.rows[0]),
+      })
+    } catch (error) {
+      console.error('Error updating cohort:', error)
+
+      if (isUniqueConstraintError(error)) {
+        return sendJson(req, res, 409, {
+          ok: false,
+          message: 'Ya existe otra cohorte con ese código.',
+        })
+      }
+
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible actualizar la cohorte.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/enrollments') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const requestedStatus = toTrimmedString(url.searchParams.get('status')).toLowerCase()
+      const requestedCourseId = toTrimmedString(url.searchParams.get('courseId'))
+      const searchQuery = toTrimmedString(url.searchParams.get('q')).toLowerCase()
+
+      const result = await db.execute(`
+        SELECT
+          er.id,
+          er.cohort_id,
+          er.course_id,
+          er.full_name,
+          er.email,
+          er.phone,
+          er.company,
+          er.document_number,
+          er.message,
+          er.status,
+          er.source,
+          er.enrolled_at,
+          er.reviewed_at,
+          er.reviewed_by_user_id,
+          er.notes,
+          c.title AS course_title,
+          c.slug AS course_slug,
+          cohort.title AS cohort_title,
+          cohort.code AS cohort_code,
+          reviewer.name AS reviewed_by_name
+        FROM enrollment_requests er
+        INNER JOIN courses c ON c.id = er.course_id
+        INNER JOIN course_cohorts cohort ON cohort.id = er.cohort_id
+        LEFT JOIN users reviewer ON reviewer.id = er.reviewed_by_user_id
+        ORDER BY datetime(er.enrolled_at) DESC, er.id DESC
+        LIMIT 300
+      `)
+
+      let items = result.rows.map(mapEnrollmentRow)
+
+      if (requestedStatus && allowedEnrollmentStatuses.has(requestedStatus)) {
+        items = items.filter((item) => item.status === requestedStatus)
+      }
+
+      if (requestedCourseId) {
+        items = items.filter((item) => String(item.courseId) === requestedCourseId)
+      }
+
+      if (searchQuery) {
+        items = items.filter((item) =>
+          [
+            item.fullName,
+            item.email,
+            item.phone,
+            item.company,
+            item.courseTitle,
+            item.cohortTitle,
+            item.cohortCode,
+            item.status,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(searchQuery)),
+        )
+      }
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: session.user,
+        items,
+      })
+    } catch (error) {
+      console.error('Error loading enrollments:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar las inscripciones administrativas.',
+      })
+    }
+  }
+
+  if (req.method === 'PUT' && adminEnrollmentByIdMatch) {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const enrollmentId = Number(adminEnrollmentByIdMatch[1])
+      const payload = await readJsonBody(req)
+      const validation = validateEnrollmentAdminPayload(payload)
+
+      if (!validation.ok) {
+        return sendJson(req, res, 400, { ok: false, message: validation.message })
+      }
+
+      const currentResult = await db.execute({
+        sql: `
+          SELECT id
+          FROM enrollment_requests
+          WHERE id = ?
+          LIMIT 1
+        `,
+        args: [enrollmentId],
+      })
+
+      if (!currentResult.rows[0]) {
+        return sendJson(req, res, 404, { ok: false, message: 'Solicitud de inscripción no encontrada.' })
+      }
+
+      await db.execute({
+        sql: `
+          UPDATE enrollment_requests
+          SET
+            status = ?,
+            notes = ?,
+            reviewed_at = CURRENT_TIMESTAMP,
+            reviewed_by_user_id = ?
+          WHERE id = ?
+        `,
+        args: [validation.value.status, validation.value.notes, session.userId, enrollmentId],
+      })
+
+      const updatedResult = await db.execute({
+        sql: `
+          SELECT
+            er.id,
+            er.cohort_id,
+            er.course_id,
+            er.full_name,
+            er.email,
+            er.phone,
+            er.company,
+            er.document_number,
+            er.message,
+            er.status,
+            er.source,
+            er.enrolled_at,
+            er.reviewed_at,
+            er.reviewed_by_user_id,
+            er.notes,
+            c.title AS course_title,
+            c.slug AS course_slug,
+            cohort.title AS cohort_title,
+            cohort.code AS cohort_code,
+            reviewer.name AS reviewed_by_name
+          FROM enrollment_requests er
+          INNER JOIN courses c ON c.id = er.course_id
+          INNER JOIN course_cohorts cohort ON cohort.id = er.cohort_id
+          LEFT JOIN users reviewer ON reviewer.id = er.reviewed_by_user_id
+          WHERE er.id = ?
+          LIMIT 1
+        `,
+        args: [enrollmentId],
+      })
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        message: 'Inscripción actualizada correctamente.',
+        item: mapEnrollmentRow(updatedResult.rows[0]),
+      })
+    } catch (error) {
+      console.error('Error updating enrollment:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible actualizar la inscripción.',
+      })
+    }
+  }
+
+  return sendJson(req, res, 404, { ok: false, message: 'Route not found.' })
+})
+
+ensureSchema()
+  .then(() => {
+    server.listen(port, () => {
+      console.log(`Respell API listening on http://localhost:${port}`)
+    })
+  })
+  .catch((error) => {
+    console.error('Error initializing Turso schema:', error)
+    process.exit(1)
+  })
