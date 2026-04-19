@@ -122,6 +122,32 @@ Administrativa:
 - `GET /api/admin/enrollments`
 - `PUT /api/admin/enrollments/:id`
 
+## Desplegar backend en Render
+
+El proyecto ya incluye [render.yaml](/home/juan/Documentos/Dev/Proyectos/RespellApp/render.yaml:1) para publicar el servidor como `Web Service` en Render.
+
+Configuración esperada:
+
+- `Build Command`: `npm install`
+- `Start Command`: `npm start`
+- `Health Check Path`: `/api/health`
+
+Variables de entorno requeridas en Render:
+
+- `TURSO_URL`
+- `TURSO_TOKEN`
+
+Pasos:
+
+1. Sube el repositorio a GitHub, GitLab o Bitbucket.
+2. En Render crea `New > Blueprint` o `New > Web Service`.
+3. Si usas Blueprint, Render leerá `render.yaml`.
+4. Si usas Web Service manual, coloca los comandos indicados arriba.
+5. Agrega `TURSO_URL` y `TURSO_TOKEN` en `Environment`.
+6. Despliega y prueba `https://tu-servicio.onrender.com/api/health`.
+
+Después de publicar el backend, el frontend en producción debe apuntar a la URL pública de Render para las rutas `/api`.
+
 ## Siguiente fase sugerida
 
 - agregar panel administrativo para consultar leads y cursos desde Turso

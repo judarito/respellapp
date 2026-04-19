@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "node server/index.js",
+    "start": "node server/index.js",
     "create:admin": "node server/create-admin.js",
     "migrate": "node scripts/run-migrations.js",
     "build": "vite build",

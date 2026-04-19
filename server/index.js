@@ -1931,7 +1931,7 @@ const server = http.createServer(async (req, res) => {
 
 ensureSchema()
   .then(() => {
-    server.listen(port, () => {
+    server.listen(port, '0.0.0.0', () => {
       console.log(`Respell API listening on http://localhost:${port}`)
     })
   })
