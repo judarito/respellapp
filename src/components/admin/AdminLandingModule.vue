@@ -16,6 +16,16 @@ function createDefaultLandingForm() {
       companyName: 'Respell',
       legalName: 'Rescate - Rapelling S.A.S',
       tagline: '',
+      servicesEyebrow: 'Nuestros servicios',
+      servicesTitle: 'Un sitio pensado para vender confianza operativa',
+      testimonialsEyebrow: 'Testimonios',
+      testimonialsTitle: 'La estructura visual sigue la referencia y se adapta a una propuesta comercial real',
+      coursesEyebrow: 'Cursos destacados',
+      coursesTitle: 'Catálogo público conectado a los cursos publicados',
+      platformEyebrow: 'Plataforma',
+      platformTitle: 'Base funcional para crecer hacia gestión académica y ventas online',
+      contactEyebrow: 'Solicita información',
+      contactTitle: 'Landing comercial con enfoque en conversión',
       primaryEmail: '',
       secondaryEmail: '',
       primaryPhone: '',
@@ -350,6 +360,46 @@ onMounted(loadLandingContent)
           <label class="admin-field-wide">
             <span>Tagline</span>
             <input v-model="landingForm.settings.tagline" type="text" />
+          </label>
+          <label>
+            <span>Eyebrow servicios</span>
+            <input v-model="landingForm.settings.servicesEyebrow" type="text" />
+          </label>
+          <label class="admin-field-wide">
+            <span>Título servicios</span>
+            <input v-model="landingForm.settings.servicesTitle" type="text" />
+          </label>
+          <label>
+            <span>Eyebrow testimonios</span>
+            <input v-model="landingForm.settings.testimonialsEyebrow" type="text" />
+          </label>
+          <label class="admin-field-wide">
+            <span>Título testimonios</span>
+            <input v-model="landingForm.settings.testimonialsTitle" type="text" />
+          </label>
+          <label>
+            <span>Eyebrow cursos</span>
+            <input v-model="landingForm.settings.coursesEyebrow" type="text" />
+          </label>
+          <label class="admin-field-wide">
+            <span>Título cursos</span>
+            <input v-model="landingForm.settings.coursesTitle" type="text" />
+          </label>
+          <label>
+            <span>Eyebrow plataforma</span>
+            <input v-model="landingForm.settings.platformEyebrow" type="text" />
+          </label>
+          <label class="admin-field-wide">
+            <span>Título plataforma</span>
+            <input v-model="landingForm.settings.platformTitle" type="text" />
+          </label>
+          <label>
+            <span>Eyebrow contacto</span>
+            <input v-model="landingForm.settings.contactEyebrow" type="text" />
+          </label>
+          <label class="admin-field-wide">
+            <span>Título contacto</span>
+            <input v-model="landingForm.settings.contactTitle" type="text" />
           </label>
           <label>
             <span>Correo principal</span>

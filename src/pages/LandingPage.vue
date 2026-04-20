@@ -246,10 +246,10 @@ onBeforeUnmount(() => {
 
         <nav class="nav-menu" aria-label="Navegación principal">
           <a href="#inicio">Inicio</a>
-          <a href="#nosotros">Nosotros</a>
+          <a href="#testimonios">Testimonios</a>
           <a href="#servicios">Servicios</a>
           <a href="#cursos">Cursos</a>
-          <a href="#blog">Blog</a>
+          <a href="#contacto">Contacto</a>
           <RouterLink to="/admin">Admin</RouterLink>
         </nav>
 
@@ -292,8 +292,8 @@ onBeforeUnmount(() => {
 
       <section id="servicios" class="section section-light">
         <div class="section-heading">
-          <span class="eyebrow eyebrow-dark">Nuestros servicios</span>
-          <h2>Un sitio pensado para vender confianza operativa</h2>
+          <span class="eyebrow eyebrow-dark">{{ settings.servicesEyebrow || 'Nuestros servicios' }}</span>
+          <h2>{{ settings.servicesTitle || 'Un sitio pensado para vender confianza operativa' }}</h2>
         </div>
 
         <div class="services-grid">
@@ -305,10 +305,15 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section id="nosotros" class="section section-neutral">
+      <section id="testimonios" class="section section-neutral">
         <div class="section-heading">
-          <span class="eyebrow eyebrow-dark">Testimonios</span>
-          <h2>La estructura visual sigue la referencia y se adapta a una propuesta comercial real</h2>
+          <span class="eyebrow eyebrow-dark">{{ settings.testimonialsEyebrow || 'Testimonios' }}</span>
+          <h2>
+            {{
+              settings.testimonialsTitle ||
+              'La estructura visual sigue la referencia y se adapta a una propuesta comercial real'
+            }}
+          </h2>
         </div>
 
         <div class="testimonials-row">
@@ -322,8 +327,8 @@ onBeforeUnmount(() => {
 
       <section id="cursos" class="section courses-section">
         <div class="section-heading">
-          <span class="eyebrow">Cursos destacados</span>
-          <h2>Catálogo público conectado a los cursos publicados</h2>
+          <span class="eyebrow">{{ settings.coursesEyebrow || 'Cursos destacados' }}</span>
+          <h2>{{ settings.coursesTitle || 'Catálogo público conectado a los cursos publicados' }}</h2>
         </div>
 
         <div v-if="!publicCourses.length && !isLandingLoading" class="empty-state empty-state-dark">
@@ -345,8 +350,12 @@ onBeforeUnmount(() => {
 
       <section id="plataforma" class="section section-light">
         <div class="section-heading">
-          <span class="eyebrow eyebrow-dark">Plataforma</span>
-          <h2>Base funcional para crecer hacia gestión académica y ventas online</h2>
+          <span class="eyebrow eyebrow-dark">{{ settings.platformEyebrow || 'Plataforma' }}</span>
+          <h2>
+            {{
+              settings.platformTitle || 'Base funcional para crecer hacia gestión académica y ventas online'
+            }}
+          </h2>
         </div>
 
         <div class="modules-grid">
@@ -361,10 +370,10 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <section id="blog" class="contact-section">
+      <section id="contacto" class="contact-section">
         <div class="contact-info">
-          <span class="eyebrow">Solicita información</span>
-          <h2>{{ settings.tagline || 'Landing comercial con enfoque en conversión' }}</h2>
+          <span class="eyebrow">{{ settings.contactEyebrow || 'Solicita información' }}</span>
+          <h2>{{ settings.contactTitle || 'Landing comercial con enfoque en conversión' }}</h2>
           <p>
             Dejé esta sección lista para convertirse en formulario conectado, captura de leads y
             seguimiento de oportunidades.
@@ -380,7 +389,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <form id="contacto" class="contact-form" @submit.prevent="handleSubmit">
+        <form class="contact-form" @submit.prevent="handleSubmit">
           <h3>Solicita información</h3>
           <input v-model="contactForm.name" type="text" placeholder="Nombre" required />
           <input

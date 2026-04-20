@@ -208,6 +208,16 @@ async function ensureSchema() {
       company_name TEXT NOT NULL DEFAULT 'Respell',
       legal_name TEXT NOT NULL DEFAULT 'Rescate - Rapelling S.A.S',
       tagline TEXT,
+      services_eyebrow TEXT,
+      services_title TEXT,
+      testimonials_eyebrow TEXT,
+      testimonials_title TEXT,
+      courses_eyebrow TEXT,
+      courses_title TEXT,
+      platform_eyebrow TEXT,
+      platform_title TEXT,
+      contact_eyebrow TEXT,
+      contact_title TEXT,
       primary_email TEXT,
       secondary_email TEXT,
       primary_phone TEXT,
@@ -218,6 +228,57 @@ async function ensureSchema() {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  await ensureTableColumn(
+    'site_settings',
+    'services_eyebrow',
+    'ALTER TABLE site_settings ADD COLUMN services_eyebrow TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'services_title',
+    'ALTER TABLE site_settings ADD COLUMN services_title TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'testimonials_eyebrow',
+    'ALTER TABLE site_settings ADD COLUMN testimonials_eyebrow TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'testimonials_title',
+    'ALTER TABLE site_settings ADD COLUMN testimonials_title TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'courses_eyebrow',
+    'ALTER TABLE site_settings ADD COLUMN courses_eyebrow TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'courses_title',
+    'ALTER TABLE site_settings ADD COLUMN courses_title TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'platform_eyebrow',
+    'ALTER TABLE site_settings ADD COLUMN platform_eyebrow TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'platform_title',
+    'ALTER TABLE site_settings ADD COLUMN platform_title TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'contact_eyebrow',
+    'ALTER TABLE site_settings ADD COLUMN contact_eyebrow TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'contact_title',
+    'ALTER TABLE site_settings ADD COLUMN contact_title TEXT',
+  )
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS homepage_hero (
@@ -413,6 +474,16 @@ function getDefaultLandingContent() {
       companyName: 'Respell',
       legalName: 'Rescate - Rapelling S.A.S',
       tagline: 'Liderazgo operativo en rescate industrial y trabajo en altura',
+      servicesEyebrow: 'Nuestros servicios',
+      servicesTitle: 'Un sitio pensado para vender confianza operativa',
+      testimonialsEyebrow: 'Testimonios',
+      testimonialsTitle: 'La estructura visual sigue la referencia y se adapta a una propuesta comercial real',
+      coursesEyebrow: 'Cursos destacados',
+      coursesTitle: 'Catálogo público conectado a los cursos publicados',
+      platformEyebrow: 'Plataforma',
+      platformTitle: 'Base funcional para crecer hacia gestión académica y ventas online',
+      contactEyebrow: 'Solicita información',
+      contactTitle: 'Landing comercial con enfoque en conversión',
       primaryEmail: 'respellcompany@gmail.com',
       secondaryEmail: 'diroperativorespell@gmail.com',
       primaryPhone: '318 0349298',
@@ -539,6 +610,16 @@ async function seedLandingDefaults() {
         company_name,
         legal_name,
         tagline,
+        services_eyebrow,
+        services_title,
+        testimonials_eyebrow,
+        testimonials_title,
+        courses_eyebrow,
+        courses_title,
+        platform_eyebrow,
+        platform_title,
+        contact_eyebrow,
+        contact_title,
         primary_email,
         secondary_email,
         primary_phone,
@@ -547,12 +628,22 @@ async function seedLandingDefaults() {
         address,
         footer_text
       )
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     args: [
       defaults.settings.companyName,
       defaults.settings.legalName,
       defaults.settings.tagline,
+      defaults.settings.servicesEyebrow,
+      defaults.settings.servicesTitle,
+      defaults.settings.testimonialsEyebrow,
+      defaults.settings.testimonialsTitle,
+      defaults.settings.coursesEyebrow,
+      defaults.settings.coursesTitle,
+      defaults.settings.platformEyebrow,
+      defaults.settings.platformTitle,
+      defaults.settings.contactEyebrow,
+      defaults.settings.contactTitle,
       defaults.settings.primaryEmail,
       defaults.settings.secondaryEmail,
       defaults.settings.primaryPhone,
@@ -820,6 +911,20 @@ function normalizeLandingContent(payload) {
       companyName: toTrimmedString(settingsPayload.companyName || defaults.settings.companyName),
       legalName: toTrimmedString(settingsPayload.legalName || defaults.settings.legalName),
       tagline: toNullableString(settingsPayload.tagline ?? defaults.settings.tagline),
+      servicesEyebrow: toNullableString(settingsPayload.servicesEyebrow ?? defaults.settings.servicesEyebrow),
+      servicesTitle: toTrimmedString(settingsPayload.servicesTitle || defaults.settings.servicesTitle),
+      testimonialsEyebrow: toNullableString(
+        settingsPayload.testimonialsEyebrow ?? defaults.settings.testimonialsEyebrow,
+      ),
+      testimonialsTitle: toTrimmedString(
+        settingsPayload.testimonialsTitle || defaults.settings.testimonialsTitle,
+      ),
+      coursesEyebrow: toNullableString(settingsPayload.coursesEyebrow ?? defaults.settings.coursesEyebrow),
+      coursesTitle: toTrimmedString(settingsPayload.coursesTitle || defaults.settings.coursesTitle),
+      platformEyebrow: toNullableString(settingsPayload.platformEyebrow ?? defaults.settings.platformEyebrow),
+      platformTitle: toTrimmedString(settingsPayload.platformTitle || defaults.settings.platformTitle),
+      contactEyebrow: toNullableString(settingsPayload.contactEyebrow ?? defaults.settings.contactEyebrow),
+      contactTitle: toTrimmedString(settingsPayload.contactTitle || defaults.settings.contactTitle),
       primaryEmail: toNullableString(settingsPayload.primaryEmail ?? defaults.settings.primaryEmail),
       secondaryEmail: toNullableString(settingsPayload.secondaryEmail ?? defaults.settings.secondaryEmail),
       primaryPhone: toNullableString(settingsPayload.primaryPhone ?? defaults.settings.primaryPhone),
@@ -901,6 +1006,19 @@ async function loadLandingContent() {
       companyName: settingsRow.company_name || 'Respell',
       legalName: settingsRow.legal_name || 'Rescate - Rapelling S.A.S',
       tagline: settingsRow.tagline || '',
+      servicesEyebrow: settingsRow.services_eyebrow || 'Nuestros servicios',
+      servicesTitle: settingsRow.services_title || 'Un sitio pensado para vender confianza operativa',
+      testimonialsEyebrow: settingsRow.testimonials_eyebrow || 'Testimonios',
+      testimonialsTitle:
+        settingsRow.testimonials_title ||
+        'La estructura visual sigue la referencia y se adapta a una propuesta comercial real',
+      coursesEyebrow: settingsRow.courses_eyebrow || 'Cursos destacados',
+      coursesTitle: settingsRow.courses_title || 'Catálogo público conectado a los cursos publicados',
+      platformEyebrow: settingsRow.platform_eyebrow || 'Plataforma',
+      platformTitle:
+        settingsRow.platform_title || 'Base funcional para crecer hacia gestión académica y ventas online',
+      contactEyebrow: settingsRow.contact_eyebrow || 'Solicita información',
+      contactTitle: settingsRow.contact_title || 'Landing comercial con enfoque en conversión',
       primaryEmail: settingsRow.primary_email || '',
       secondaryEmail: settingsRow.secondary_email || '',
       primaryPhone: settingsRow.primary_phone || '',
@@ -1022,6 +1140,16 @@ async function saveLandingContent(payload) {
             company_name,
             legal_name,
             tagline,
+            services_eyebrow,
+            services_title,
+            testimonials_eyebrow,
+            testimonials_title,
+            courses_eyebrow,
+            courses_title,
+            platform_eyebrow,
+            platform_title,
+            contact_eyebrow,
+            contact_title,
             primary_email,
             secondary_email,
             primary_phone,
@@ -1031,11 +1159,21 @@ async function saveLandingContent(payload) {
             footer_text,
             updated_at
           )
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(id) DO UPDATE SET
             company_name = excluded.company_name,
             legal_name = excluded.legal_name,
             tagline = excluded.tagline,
+            services_eyebrow = excluded.services_eyebrow,
+            services_title = excluded.services_title,
+            testimonials_eyebrow = excluded.testimonials_eyebrow,
+            testimonials_title = excluded.testimonials_title,
+            courses_eyebrow = excluded.courses_eyebrow,
+            courses_title = excluded.courses_title,
+            platform_eyebrow = excluded.platform_eyebrow,
+            platform_title = excluded.platform_title,
+            contact_eyebrow = excluded.contact_eyebrow,
+            contact_title = excluded.contact_title,
             primary_email = excluded.primary_email,
             secondary_email = excluded.secondary_email,
             primary_phone = excluded.primary_phone,
@@ -1049,6 +1187,16 @@ async function saveLandingContent(payload) {
           normalizedContent.settings.companyName,
           normalizedContent.settings.legalName,
           normalizedContent.settings.tagline,
+          normalizedContent.settings.servicesEyebrow,
+          normalizedContent.settings.servicesTitle,
+          normalizedContent.settings.testimonialsEyebrow,
+          normalizedContent.settings.testimonialsTitle,
+          normalizedContent.settings.coursesEyebrow,
+          normalizedContent.settings.coursesTitle,
+          normalizedContent.settings.platformEyebrow,
+          normalizedContent.settings.platformTitle,
+          normalizedContent.settings.contactEyebrow,
+          normalizedContent.settings.contactTitle,
           normalizedContent.settings.primaryEmail,
           normalizedContent.settings.secondaryEmail,
           normalizedContent.settings.primaryPhone,

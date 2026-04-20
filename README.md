@@ -180,6 +180,19 @@ Uso esperado del `AdminPaginatedListView`:
 4. El slot por defecto renderiza filas o tarjetas con los `items` de la página actual.
 5. Al seleccionar un item, el módulo abre `AdminDetailModal` con el detalle correspondiente.
 
+## Cambios De Esquema Seguros
+
+Las ampliaciones recientes del esquema siguen una política no destructiva:
+
+- no se eliminan tablas
+- no se eliminan columnas
+- no se borran registros existentes
+- las nuevas columnas de `site_settings` para headings de la landing se agregan de forma aditiva
+
+En el arranque del servidor, [server/index.js](/home/juan/Documentos/Dev/Proyectos/RespellApp/server/index.js:229)
+verifica si cada columna existe antes de intentar agregarla. Eso permite evolucionar bases ya pobladas
+sin perder datos históricos.
+
 ## Desplegar backend en Render
 
 El proyecto ya incluye [render.yaml](/home/juan/Documentos/Dev/Proyectos/RespellApp/render.yaml:1) para publicar el servidor como `Web Service` en Render.
