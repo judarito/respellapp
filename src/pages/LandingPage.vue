@@ -3,7 +3,115 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiRequest, buildApiUrl, readResponsePayload } from '../lib/api'
 
-const landingContent = ref(null)
+const defaultLandingContent = {
+  settings: {
+    companyName: 'Respell',
+    legalName: 'Rescate - Rapelling S.A.S',
+    tagline: 'Liderazgo operativo en rescate industrial y trabajo en altura',
+    primaryEmail: 'respellcompany@gmail.com',
+    secondaryEmail: 'diroperativorespell@gmail.com',
+    primaryPhone: '318 0349298',
+    secondaryPhone: '310 8110995',
+    whatsappNumber: '318 0349298',
+    address: '',
+    footerText: 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.',
+  },
+  hero: {
+    eyebrow: 'Rescate industrial y trabajo en altura',
+    title: 'Líderes en rescate industrial y trabajo en altura',
+    subtitle:
+      'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.',
+    primaryCtaLabel: 'Ver cursos',
+    primaryCtaUrl: '/cursos',
+    secondaryCtaLabel: 'Ver plataforma',
+    secondaryCtaUrl: '#plataforma',
+    chipTop: 'Certificación y entrenamiento operativo',
+    chipBottom: 'Listo para conectar CRM, cursos y ventas',
+    backgroundImageUrl: '/hero-rescate.png',
+    isPublished: true,
+  },
+  services: [
+    {
+      title: 'Capacitación en alturas',
+      description:
+        'Programas certificados para trabajo seguro, rescate vertical y maniobras especializadas.',
+      icon: 'A',
+      isActive: true,
+    },
+    {
+      title: 'Espacios confinados',
+      description:
+        'Protocolos, evaluación de riesgos y entrenamiento operativo para entornos críticos.',
+      icon: 'E',
+      isActive: true,
+    },
+    {
+      title: 'Brigadas de emergencia',
+      description:
+        'Formación táctica para respuesta rápida, mando de incidentes y evacuación.',
+      icon: 'B',
+      isActive: true,
+    },
+    {
+      title: 'Venta y alquiler',
+      description:
+        'Equipos, líneas de vida, kits de rescate y elementos de protección para cada operación.',
+      icon: 'V',
+      isActive: true,
+    },
+  ],
+  testimonials: [
+    {
+      companyName: 'TransQuim',
+      quote: 'La mejor capacitación en rescate industrial que hemos recibido. Totalmente recomendados.',
+      rating: 5,
+      isActive: true,
+    },
+    {
+      companyName: 'TGreen',
+      quote: 'Profesionales, puntuales y con un equipo de primera calidad.',
+      rating: 5,
+      isActive: true,
+    },
+    {
+      companyName: 'DeMA',
+      quote: 'Su brigada de emergencia nos salvó en una situación crítica.',
+      rating: 5,
+      isActive: true,
+    },
+  ],
+  metrics: [
+    { value: '+120', label: 'brigadistas capacitados', isActive: true },
+    { value: '24/7', label: 'enfoque en respuesta', isActive: true },
+    { value: '100%', label: 'alineado a operación industrial', isActive: true },
+  ],
+  featureBlocks: [
+    {
+      eyebrow: 'Gestión académica',
+      title: 'Publicación de cursos',
+      text: 'Crea fichas, temarios, instructores, fechas y cupos desde un solo panel.',
+      bulletsText: 'Borradores y publicación\nCatálogo público\nControl de disponibilidad',
+      isActive: true,
+    },
+    {
+      eyebrow: 'Operación comercial',
+      title: 'Ventas online',
+      text: 'Base pensada para conectar checkout, órdenes y pasarela. Dejé el bloque listo para integrar Ofirone.',
+      bulletsText: 'Inscripción por curso\nÓrdenes y estados\nIntegración futura con pagos',
+      isActive: true,
+    },
+    {
+      eyebrow: 'Backoffice',
+      title: 'Seguimiento y leads',
+      text: 'Centraliza solicitudes, formularios, empresas interesadas y seguimiento comercial.',
+      bulletsText: 'Contactos y cotizaciones\nEmbudo comercial\nPanel para asesores',
+      isActive: true,
+    },
+  ],
+  featuredCourses: [],
+}
+
+const landingContent = ref(defaultLandingContent)
 const isLandingLoading = ref(true)
 const showScrollTopButton = ref(false)
 
@@ -65,7 +173,7 @@ async function loadLanding() {
     const result = await apiRequest('/api/public/landing')
     landingContent.value = result
   } catch {
-    landingContent.value = null
+    landingContent.value = defaultLandingContent
   } finally {
     isLandingLoading.value = false
   }

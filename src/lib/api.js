@@ -1,4 +1,36 @@
-const apiBaseUrl = String(import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '')
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_URL || '')
+  .trim()
+  .replace(/\/+$/, '')
+
+function resolveApiBaseUrl() {
+  if (!configuredApiBaseUrl || typeof window === 'undefined') {
+    return configuredApiBaseUrl
+  }
+
+  const currentHostname = window.location.hostname
+  const isLocalEnvironment =
+    currentHostname === 'localhost' ||
+    currentHostname === '127.0.0.1' ||
+    currentHostname === '0.0.0.0'
+
+  if (isLocalEnvironment) {
+    return ''
+  }
+
+  try {
+    const configuredUrl = new URL(configuredApiBaseUrl)
+
+    if (configuredUrl.origin === window.location.origin) {
+      return ''
+    }
+  } catch {
+    return configuredApiBaseUrl
+  }
+
+  return configuredApiBaseUrl
+}
+
+const apiBaseUrl = resolveApiBaseUrl()
 
 export function buildApiUrl(path) {
   if (!apiBaseUrl) {

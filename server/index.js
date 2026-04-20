@@ -44,6 +44,15 @@ const db = createClient({
   authToken: tursoToken,
 })
 
+async function ensureTableColumn(tableName, columnName, alterStatement) {
+  const result = await db.execute(`PRAGMA table_info(${tableName})`)
+  const hasColumn = result.rows.some((column) => column.name === columnName)
+
+  if (!hasColumn) {
+    await db.execute(alterStatement)
+  }
+}
+
 async function ensureSchema() {
   await db.execute('PRAGMA foreign_keys = ON')
 
@@ -79,6 +88,24 @@ async function ensureSchema() {
       last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
+  `)
+
+  await ensureTableColumn(
+    'users',
+    'role',
+    "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'admin'",
+  )
+  await db.execute("UPDATE users SET role = 'admin' WHERE role IS NULL OR trim(role) = ''")
+
+  await ensureTableColumn(
+    'sessions',
+    'last_seen_at',
+    'ALTER TABLE sessions ADD COLUMN last_seen_at TEXT',
+  )
+  await db.execute(`
+    UPDATE sessions
+    SET last_seen_at = COALESCE(last_seen_at, created_at, CURRENT_TIMESTAMP)
+    WHERE last_seen_at IS NULL
   `)
 
   await db.execute(`
@@ -728,6 +755,55 @@ function toBooleanFlag(value, fallback = true) {
 
   const normalizedValue = String(value).trim().toLowerCase()
   return ['1', 'true', 'yes', 'on'].includes(normalizedValue)
+}
+
+function toBoundedInteger(value, fallback, minimum, maximum) {
+  const parsedValue = Number(value)
+
+  if (!Number.isInteger(parsedValue)) {
+    return fallback
+  }
+
+  return Math.min(Math.max(parsedValue, minimum), maximum)
+}
+
+function getPaginationParams(searchParams, options = {}) {
+  const defaultPage = options.defaultPage || 1
+  const defaultPageSize = options.defaultPageSize || 10
+  const maxPageSize = options.maxPageSize || 50
+  const page = toBoundedInteger(searchParams.get('page'), defaultPage, 1, Number.MAX_SAFE_INTEGER)
+  const pageSize = toBoundedInteger(searchParams.get('pageSize'), defaultPageSize, 1, maxPageSize)
+
+  return {
+    page,
+    pageSize,
+    offset: (page - 1) * pageSize,
+  }
+}
+
+function buildPaginationMeta(page, pageSize, totalItems) {
+  const safeTotalItems = Math.max(Number(totalItems) || 0, 0)
+  const totalPages = Math.max(Math.ceil(safeTotalItems / pageSize), 1)
+  const currentPage = Math.min(page, totalPages)
+
+  return {
+    page: currentPage,
+    pageSize,
+    totalItems: safeTotalItems,
+    totalPages,
+    hasPreviousPage: currentPage > 1,
+    hasNextPage: currentPage < totalPages,
+  }
+}
+
+function buildSearchLikeQuery(value) {
+  const normalizedValue = toTrimmedString(value).toLowerCase()
+
+  if (!normalizedValue) {
+    return null
+  }
+
+  return `%${normalizedValue}%`
 }
 
 function normalizeLandingList(items, mapper) {
@@ -2066,17 +2142,49 @@ const server = http.createServer(async (req, res) => {
         return
       }
 
-      const result = await db.execute(`
-        SELECT id, name, email, message, source, created_at
-        FROM contact_requests
-        ORDER BY datetime(created_at) DESC, id DESC
-        LIMIT 100
-      `)
+      const { page, pageSize, offset } = getPaginationParams(url.searchParams)
+      const searchLikeQuery = buildSearchLikeQuery(url.searchParams.get('q'))
+      const whereClauses = []
+      const whereArgs = []
+
+      if (searchLikeQuery) {
+        whereClauses.push(`
+          (
+            lower(name) LIKE ?
+            OR lower(email) LIKE ?
+            OR lower(message) LIKE ?
+            OR lower(source) LIKE ?
+          )
+        `)
+        whereArgs.push(searchLikeQuery, searchLikeQuery, searchLikeQuery, searchLikeQuery)
+      }
+
+      const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''
+      const totalResult = await db.execute({
+        sql: `
+          SELECT COUNT(*) AS total
+          FROM contact_requests
+          ${whereSql}
+        `,
+        args: whereArgs,
+      })
+      const totalItems = Number(totalResult.rows[0]?.total || 0)
+      const result = await db.execute({
+        sql: `
+          SELECT id, name, email, message, source, created_at
+          FROM contact_requests
+          ${whereSql}
+          ORDER BY datetime(created_at) DESC, id DESC
+          LIMIT ? OFFSET ?
+        `,
+        args: [...whereArgs, pageSize, offset],
+      })
 
       return sendJson(req, res, 200, {
         ok: true,
         user: session.user,
         items: result.rows,
+        pagination: buildPaginationMeta(page, pageSize, totalItems),
       })
     } catch (error) {
       console.error('Error loading contact requests:', error)
@@ -2174,52 +2282,83 @@ const server = http.createServer(async (req, res) => {
         return
       }
 
-      const result = await db.execute(`
-        SELECT
-          c.id,
-          c.category_id,
-          c.title,
-          c.slug,
-          c.short_description,
-          c.description,
-          c.modality,
-          c.level,
-          c.duration_hours,
-          c.cover_image_url,
-          c.price_cents,
-          c.currency,
-          c.publication_status,
-          c.published_at,
-          cc.name AS category_name,
-          COUNT(cohort.id) AS cohort_count,
-          SUM(CASE WHEN cohort.status = 'published' THEN 1 ELSE 0 END) AS published_cohort_count,
-          MIN(CASE WHEN cohort.status = 'published' THEN cohort.start_date END) AS next_start_date
-        FROM courses c
-        LEFT JOIN course_categories cc ON cc.id = c.category_id
-        LEFT JOIN course_cohorts cohort ON cohort.course_id = c.id
-        GROUP BY
-          c.id,
-          c.category_id,
-          c.title,
-          c.slug,
-          c.short_description,
-          c.description,
-          c.modality,
-          c.level,
-          c.duration_hours,
-          c.cover_image_url,
-          c.price_cents,
-          c.currency,
-          c.publication_status,
-          c.published_at,
-          cc.name
-        ORDER BY datetime(c.updated_at) DESC, c.id DESC
-      `)
+      const { page, pageSize, offset } = getPaginationParams(url.searchParams)
+      const searchLikeQuery = buildSearchLikeQuery(url.searchParams.get('q'))
+      const whereClauses = []
+      const whereArgs = []
+
+      if (searchLikeQuery) {
+        whereClauses.push(`
+          (
+            lower(c.title) LIKE ?
+            OR lower(c.slug) LIKE ?
+            OR lower(COALESCE(cc.name, '')) LIKE ?
+            OR lower(c.publication_status) LIKE ?
+          )
+        `)
+        whereArgs.push(searchLikeQuery, searchLikeQuery, searchLikeQuery, searchLikeQuery)
+      }
+
+      const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''
+      const totalResult = await db.execute({
+        sql: `
+          SELECT COUNT(*) AS total
+          FROM courses c
+          LEFT JOIN course_categories cc ON cc.id = c.category_id
+          ${whereSql}
+        `,
+        args: whereArgs,
+      })
+      const totalItems = Number(totalResult.rows[0]?.total || 0)
+      const result = await db.execute({
+        sql: `
+          SELECT
+            c.id,
+            c.category_id,
+            c.title,
+            c.slug,
+            c.short_description,
+            c.description,
+            c.modality,
+            c.level,
+            c.duration_hours,
+            c.cover_image_url,
+            c.price_cents,
+            c.currency,
+            c.publication_status,
+            c.published_at,
+            cc.name AS category_name,
+            (
+              SELECT COUNT(*)
+              FROM course_cohorts cohort
+              WHERE cohort.course_id = c.id
+            ) AS cohort_count,
+            (
+              SELECT COUNT(*)
+              FROM course_cohorts cohort
+              WHERE cohort.course_id = c.id
+                AND cohort.status = 'published'
+            ) AS published_cohort_count,
+            (
+              SELECT MIN(cohort.start_date)
+              FROM course_cohorts cohort
+              WHERE cohort.course_id = c.id
+                AND cohort.status = 'published'
+            ) AS next_start_date
+          FROM courses c
+          LEFT JOIN course_categories cc ON cc.id = c.category_id
+          ${whereSql}
+          ORDER BY datetime(c.updated_at) DESC, c.id DESC
+          LIMIT ? OFFSET ?
+        `,
+        args: [...whereArgs, pageSize, offset],
+      })
 
       return sendJson(req, res, 200, {
         ok: true,
         user: session.user,
         items: result.rows.map(mapCourseSummary),
+        pagination: buildPaginationMeta(page, pageSize, totalItems),
       })
     } catch (error) {
       console.error('Error loading admin courses:', error)
@@ -2634,71 +2773,101 @@ const server = http.createServer(async (req, res) => {
         return
       }
 
+      const { page, pageSize, offset } = getPaginationParams(url.searchParams)
       const requestedStatus = toTrimmedString(url.searchParams.get('status')).toLowerCase()
       const requestedCourseId = toTrimmedString(url.searchParams.get('courseId'))
-      const searchQuery = toTrimmedString(url.searchParams.get('q')).toLowerCase()
-
-      const result = await db.execute(`
-        SELECT
-          er.id,
-          er.cohort_id,
-          er.course_id,
-          er.full_name,
-          er.email,
-          er.phone,
-          er.company,
-          er.document_number,
-          er.message,
-          er.status,
-          er.source,
-          er.enrolled_at,
-          er.reviewed_at,
-          er.reviewed_by_user_id,
-          er.notes,
-          c.title AS course_title,
-          c.slug AS course_slug,
-          cohort.title AS cohort_title,
-          cohort.code AS cohort_code,
-          reviewer.name AS reviewed_by_name
-        FROM enrollment_requests er
-        INNER JOIN courses c ON c.id = er.course_id
-        INNER JOIN course_cohorts cohort ON cohort.id = er.cohort_id
-        LEFT JOIN users reviewer ON reviewer.id = er.reviewed_by_user_id
-        ORDER BY datetime(er.enrolled_at) DESC, er.id DESC
-        LIMIT 300
-      `)
-
-      let items = result.rows.map(mapEnrollmentRow)
+      const requestedCourseIdNumber = requestedCourseId ? Number(requestedCourseId) : null
+      const searchLikeQuery = buildSearchLikeQuery(url.searchParams.get('q'))
+      const whereClauses = []
+      const whereArgs = []
 
       if (requestedStatus && allowedEnrollmentStatuses.has(requestedStatus)) {
-        items = items.filter((item) => item.status === requestedStatus)
+        whereClauses.push('er.status = ?')
+        whereArgs.push(requestedStatus)
       }
 
-      if (requestedCourseId) {
-        items = items.filter((item) => String(item.courseId) === requestedCourseId)
+      if (requestedCourseId && Number.isInteger(requestedCourseIdNumber) && requestedCourseIdNumber > 0) {
+        whereClauses.push('er.course_id = ?')
+        whereArgs.push(requestedCourseIdNumber)
       }
 
-      if (searchQuery) {
-        items = items.filter((item) =>
-          [
-            item.fullName,
-            item.email,
-            item.phone,
-            item.company,
-            item.courseTitle,
-            item.cohortTitle,
-            item.cohortCode,
-            item.status,
-          ]
-            .filter(Boolean)
-            .some((value) => String(value).toLowerCase().includes(searchQuery)),
+      if (searchLikeQuery) {
+        whereClauses.push(`
+          (
+            lower(er.full_name) LIKE ?
+            OR lower(er.email) LIKE ?
+            OR lower(COALESCE(er.phone, '')) LIKE ?
+            OR lower(COALESCE(er.company, '')) LIKE ?
+            OR lower(c.title) LIKE ?
+            OR lower(COALESCE(cohort.title, '')) LIKE ?
+            OR lower(cohort.code) LIKE ?
+            OR lower(er.status) LIKE ?
+          )
+        `)
+        whereArgs.push(
+          searchLikeQuery,
+          searchLikeQuery,
+          searchLikeQuery,
+          searchLikeQuery,
+          searchLikeQuery,
+          searchLikeQuery,
+          searchLikeQuery,
+          searchLikeQuery,
         )
       }
+
+      const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''
+      const totalResult = await db.execute({
+        sql: `
+          SELECT COUNT(*) AS total
+          FROM enrollment_requests er
+          INNER JOIN courses c ON c.id = er.course_id
+          INNER JOIN course_cohorts cohort ON cohort.id = er.cohort_id
+          ${whereSql}
+        `,
+        args: whereArgs,
+      })
+      const totalItems = Number(totalResult.rows[0]?.total || 0)
+      const result = await db.execute({
+        sql: `
+          SELECT
+            er.id,
+            er.cohort_id,
+            er.course_id,
+            er.full_name,
+            er.email,
+            er.phone,
+            er.company,
+            er.document_number,
+            er.message,
+            er.status,
+            er.source,
+            er.enrolled_at,
+            er.reviewed_at,
+            er.reviewed_by_user_id,
+            er.notes,
+            c.title AS course_title,
+            c.slug AS course_slug,
+            cohort.title AS cohort_title,
+            cohort.code AS cohort_code,
+            reviewer.name AS reviewed_by_name
+          FROM enrollment_requests er
+          INNER JOIN courses c ON c.id = er.course_id
+          INNER JOIN course_cohorts cohort ON cohort.id = er.cohort_id
+          LEFT JOIN users reviewer ON reviewer.id = er.reviewed_by_user_id
+          ${whereSql}
+          ORDER BY datetime(er.enrolled_at) DESC, er.id DESC
+          LIMIT ? OFFSET ?
+        `,
+        args: [...whereArgs, pageSize, offset],
+      })
+      const items = result.rows.map(mapEnrollmentRow)
 
       return sendJson(req, res, 200, {
         ok: true,
         user: session.user,
         items,
+        pagination: buildPaginationMeta(page, pageSize, totalItems),
       })
     } catch (error) {
       console.error('Error loading enrollments:', error)

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import AdminContactsModule from '../components/admin/AdminContactsModule.vue'
 import AdminCoursesModule from '../components/admin/AdminCoursesModule.vue'
@@ -7,7 +7,6 @@ import AdminEnrollmentsModule from '../components/admin/AdminEnrollmentsModule.v
 import AdminLandingModule from '../components/admin/AdminLandingModule.vue'
 import AdminLayout from '../components/admin/AdminLayout.vue'
 import AdminModulePlaceholder from '../components/admin/AdminModulePlaceholder.vue'
-import { apiRequest } from '../lib/api'
 import { useAuth } from '../composables/useAuth'
 
 const router = useRouter()
@@ -64,11 +63,6 @@ const adminModules = [
 ]
 
 const activeAdminModule = ref('landing')
-const isLeadsLoading = ref(false)
-const hasLoadedLeads = ref(false)
-const leads = ref([])
-const leadsSearch = ref('')
-const selectedLeadId = ref(null)
 
 const { authMessage, authState, authUser, clearAuthFeedback, isAuthLoading, loadSession, logout } =
   useAuth()
@@ -76,53 +70,11 @@ const { authMessage, authState, authUser, clearAuthFeedback, isAuthLoading, load
 const activeAdminModuleData = computed(
   () => adminModules.find((module) => module.id === activeAdminModule.value) || adminModules[0],
 )
-const filteredLeads = computed(() => {
-  const query = leadsSearch.value.trim().toLowerCase()
-
-  if (!query) {
-    return leads.value
-  }
-
-  return leads.value.filter((lead) =>
-    [lead.name, lead.email, lead.message, lead.source]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query)),
-  )
-})
-const selectedLead = computed(() => {
-  if (!filteredLeads.value.length) {
-    return null
-  }
-
-  return (
-    filteredLeads.value.find((lead) => lead.id === selectedLeadId.value) || filteredLeads.value[0]
-  )
-})
-
-async function loadLeads() {
-  isLeadsLoading.value = true
-
-  try {
-    const result = await apiRequest('/api/admin/contact-requests')
-    leads.value = result.items || []
-    selectedLeadId.value = result.items?.[0]?.id || null
-    hasLoadedLeads.value = true
-  } catch (error) {
-    if (String(error.message || '').toLowerCase().includes('iniciar sesión')) {
-      leads.value = []
-      await router.replace('/login')
-    }
-  } finally {
-    isLeadsLoading.value = false
-  }
-}
 
 async function handleLogout() {
   try {
     await logout()
   } finally {
-    leads.value = []
-    hasLoadedLeads.value = false
     await router.push('/login')
   }
 }
@@ -134,12 +86,6 @@ onMounted(async () => {
   if (!user) {
     await router.replace('/login')
     return
-  }
-})
-
-watch(activeAdminModule, async (moduleId) => {
-  if (moduleId === 'contacts' && !hasLoadedLeads.value && !isLeadsLoading.value) {
-    await loadLeads()
   }
 })
 </script>
@@ -173,29 +119,9 @@ watch(activeAdminModule, async (moduleId) => {
               <strong>{{ authUser?.email }}</strong>
               <span>{{ authUser?.role }}</span>
             </div>
-            <div class="admin-toolbar-actions">
-              <button
-                v-if="activeAdminModule === 'contacts'"
-                class="button button-outline"
-                type="button"
-                :disabled="isLeadsLoading"
-                @click="loadLeads"
-              >
-                {{ isLeadsLoading ? 'Actualizando...' : 'Actualizar' }}
-              </button>
-            </div>
           </div>
 
-          <AdminContactsModule
-            v-if="activeAdminModule === 'contacts'"
-            :is-loading="isLeadsLoading"
-            :leads="leads"
-            :filtered-leads="filteredLeads"
-            :selected-lead="selectedLead"
-            :search="leadsSearch"
-            @update:search="leadsSearch = $event"
-            @select-lead="selectedLeadId = $event"
-          />
+          <AdminContactsModule v-if="activeAdminModule === 'contacts'" />
 
           <AdminLandingModule v-else-if="activeAdminModule === 'landing'" />
 

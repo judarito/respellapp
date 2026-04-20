@@ -1,5 +1,7 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap");
+
 :root {
-  font-family: "Avenir Next", "Montserrat", "Segoe UI", sans-serif;
+  font-family: "Montserrat", "Avenir Next", "Segoe UI", sans-serif;
   color: #101828;
   background:
     linear-gradient(135deg, #f3f6fb 0%, #e7edf6 50%, #f9fafb 100%);
@@ -372,7 +374,7 @@ select {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 760px;
+  max-width: 1180px;
   margin-bottom: 32px;
 }
 
@@ -380,9 +382,10 @@ select {
 .contact-section h2 {
   margin: 0;
   font-size: clamp(2rem, 4vw, 3rem);
-  line-height: 1.08;
+  line-height: 1.14;
   letter-spacing: -0.04em;
   color: var(--text-main);
+  max-width: 100%;
 }
 
 .section-light .section-heading p,
@@ -859,6 +862,11 @@ select {
   align-content: start;
 }
 
+.admin-sidebar,
+.admin-courses-sidebar {
+  min-width: 0;
+}
+
 .admin-workspace-header h3,
 .admin-panel-title h3 {
   margin: 8px 0 10px;
@@ -982,6 +990,110 @@ select {
 
 .admin-workspace {
   padding: 20px;
+}
+
+.admin-list-module,
+.admin-modal-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-listview-card {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-listview-header,
+.admin-listview-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-listview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.admin-listview-toolbar:empty {
+  display: none;
+}
+
+.admin-listview-body {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-listview-footer {
+  padding-top: 18px;
+  border-top: 1px solid rgba(16, 24, 40, 0.08);
+}
+
+.admin-listview-footer-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-listview-footer-copy strong {
+  color: var(--text-main);
+}
+
+.admin-listview-footer-copy span {
+  color: var(--text-soft);
+}
+
+.admin-listview-footer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.admin-listview-page-size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+}
+
+.admin-listview-page-size select {
+  border: 1px solid rgba(16, 24, 40, 0.12);
+  border-radius: 12px;
+  padding: 0.72rem 0.9rem;
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text-main);
+}
+
+.admin-listview-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-listview-pagination span {
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.admin-inline-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-inline-filters input {
+  flex: 1 1 260px;
+}
+
+.admin-listview-filters-grid {
+  margin-bottom: 0;
 }
 
 .admin-workspace-body,
@@ -1138,6 +1250,7 @@ select {
 .lead-table {
   width: 100%;
   border-collapse: collapse;
+  min-width: 100%;
 }
 
 .lead-table th,
@@ -1190,6 +1303,7 @@ select {
   margin-bottom: 10px;
   color: #1d4ed8;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .lead-detail-card {
@@ -1259,6 +1373,67 @@ select {
 
 .admin-feedback {
   margin-top: 16px;
+}
+
+.admin-modal-open {
+  overflow: hidden;
+}
+
+.admin-modal-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 40, 0.46);
+  backdrop-filter: blur(10px);
+}
+
+.admin-modal-shell {
+  width: min(100%, 980px);
+  max-height: min(100vh - 48px, 960px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 28px;
+  background: rgba(247, 250, 253, 0.98);
+  box-shadow: 0 28px 70px rgba(15, 23, 40, 0.28);
+  overflow: hidden;
+}
+
+.admin-modal-shell.is-md {
+  width: min(100%, 720px);
+}
+
+.admin-modal-shell.is-xl {
+  width: min(100%, 1180px);
+}
+
+.admin-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-bottom: 1px solid rgba(16, 24, 40, 0.08);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.admin-modal-header h3 {
+  margin: 0 0 6px;
+  color: var(--text-main);
+  font-size: 1.5rem;
+}
+
+.admin-modal-header p {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.admin-modal-body {
+  overflow: auto;
+  padding: 24px;
 }
 
 .route-auth-shell {
@@ -1423,6 +1598,7 @@ select {
 
 .admin-course-list-header strong {
   color: var(--text-main);
+  overflow-wrap: anywhere;
 }
 
 .admin-course-list-header span {
@@ -1440,6 +1616,7 @@ select {
   margin: 0 0 10px;
   color: var(--text-soft);
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .admin-form-card {
@@ -1604,9 +1781,49 @@ select {
   .courses-grid,
   .public-courses-grid,
   .modules-grid,
-  .testimonials-row,
-  .admin-layout {
+  .testimonials-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-layout,
+  .admin-courses-layout,
+  .admin-leads-layout,
+  .admin-enrollments-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-module-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-route-topbar {
+    flex-wrap: wrap;
+  }
+
+  .admin-route-actions {
+    width: 100%;
+  }
+
+  .admin-listview-header,
+  .admin-listview-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-listview-actions,
+  .admin-listview-footer-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .admin-sidebar,
+  .admin-course-list,
+  .lead-table-wrap {
+    max-height: none;
+  }
+
+  .section-heading {
+    max-width: 100%;
   }
 
   .hero-panel h1 {
@@ -1711,18 +1928,13 @@ select {
   }
 
   .admin-toolbar,
-  .admin-results-header {
+  .admin-results-header,
+  .admin-modal-header {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .admin-leads-layout {
-    grid-template-columns: 1fr;
-  }
-
   .course-detail-layout,
-  .admin-courses-layout,
-  .admin-enrollments-layout,
   .admin-form-grid,
   .admin-form-grid.compact-grid {
     grid-template-columns: 1fr;
@@ -1746,5 +1958,128 @@ select {
     width: 162px;
     min-width: 162px;
     height: 54px;
+  }
+
+  .admin-module-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-module-button {
+    padding: 13px;
+  }
+
+  .admin-modal-root,
+  .admin-modal-body {
+    padding: 18px;
+  }
+}
+
+@media (max-width: 720px) {
+  .section-heading h2,
+  .contact-section h2 {
+    font-size: clamp(1.8rem, 8vw, 2.5rem);
+    line-height: 1.12;
+  }
+
+  .lead-table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .lead-table,
+  .lead-table thead,
+  .lead-table tbody,
+  .lead-table tr,
+  .lead-table th,
+  .lead-table td {
+    display: block;
+  }
+
+  .lead-table thead {
+    display: none;
+  }
+
+  .lead-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .lead-table tbody tr {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid rgba(16, 24, 40, 0.08);
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(15, 23, 40, 0.06);
+  }
+
+  .lead-table tbody tr.is-active {
+    background: linear-gradient(180deg, rgba(255, 139, 24, 0.1), rgba(255, 255, 255, 0.96));
+  }
+
+  .lead-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .lead-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-soft);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .lead-card,
+  .lead-detail-card,
+  .admin-form-card {
+    min-width: 0;
+  }
+
+  .lead-card-header,
+  .admin-course-list-header,
+  .admin-repeat-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-enrollment-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-route-actions .button,
+  .admin-form-actions .button,
+  .admin-toolbar-actions .button,
+  .admin-listview-actions .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .admin-inline-filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-inline-filters input {
+    flex-basis: auto;
+  }
+
+  .admin-listview-pagination,
+  .admin-listview-page-size {
+    width: 100%;
+  }
+
+  .admin-listview-pagination .button {
+    flex: 1 1 0;
+  }
+
+  .admin-modal-shell {
+    max-height: min(100vh - 24px, 960px);
+    border-radius: 22px;
   }
 }

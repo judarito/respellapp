@@ -132,6 +132,54 @@ Administrativa:
 - `GET /api/admin/enrollments`
 - `PUT /api/admin/enrollments/:id`
 
+Los listados administrativos `GET /api/admin/contact-requests`, `GET /api/admin/courses` y
+`GET /api/admin/enrollments` ahora aceptan paginación y responden con metadata uniforme:
+
+- query params: `page`, `pageSize`
+- filtros: `q` en los tres listados y `status` en inscripciones
+- shape de respuesta:
+
+```json
+{
+  "ok": true,
+  "items": [],
+  "pagination": {
+    "page": 1,
+    "pageSize": 10,
+    "totalItems": 0,
+    "totalPages": 1,
+    "hasPreviousPage": false,
+    "hasNextPage": false
+  }
+}
+```
+
+## Patrón Del Admin
+
+Los módulos `Leads`, `Cursos` e `Inscripciones` ya no usan layout `listado + detalle` lado a lado.
+La navegación quedó así:
+
+- primero se muestra un `listview` paginado
+- al seleccionar un registro se abre el detalle en modal
+- la paginación vive dentro del componente reusable
+
+Componentes reutilizables nuevos:
+
+- [AdminPaginatedListView.vue](/home/juan/Documentos/Dev/Proyectos/RespellApp/src/components/admin/AdminPaginatedListView.vue:1)
+  Responsable de:
+  cargar páginas, renderizar estado vacío/cargando, exponer `refresh()` y manejar controles de paginación.
+- [AdminDetailModal.vue](/home/juan/Documentos/Dev/Proyectos/RespellApp/src/components/admin/AdminDetailModal.vue:1)
+  Responsable de:
+  encapsular el detalle en modal reutilizable para cualquier entidad admin.
+
+Uso esperado del `AdminPaginatedListView`:
+
+1. Cada módulo define una función `fetchPage({ page, pageSize, requestParams })`.
+2. Esa función consulta su endpoint server-side paginado.
+3. El módulo pasa filtros serializables por `requestParams`.
+4. El slot por defecto renderiza filas o tarjetas con los `items` de la página actual.
+5. Al seleccionar un item, el módulo abre `AdminDetailModal` con el detalle correspondiente.
+
 ## Desplegar backend en Render
 
 El proyecto ya incluye [render.yaml](/home/juan/Documentos/Dev/Proyectos/RespellApp/render.yaml:1) para publicar el servidor como `Web Service` en Render.
@@ -174,7 +222,7 @@ La app ya usa esa variable desde [src/lib/api.js](/home/juan/Documentos/Dev/Proy
 
 Importante:
 
-- en desarrollo puedes dejar `VITE_API_URL` vacío y seguir usando el proxy de Vite
+- en desarrollo la app prioriza rutas relativas `/api` en `localhost`, así que puede seguir usando el proxy de Vite aunque `VITE_API_URL` exista en otro entorno
 - en producción el backend usa cookies `Secure` y `SameSite=None` para que la sesión funcione entre dominios distintos
 
 ## Siguiente fase sugerida

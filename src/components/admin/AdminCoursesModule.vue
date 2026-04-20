@@ -1,20 +1,26 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import AdminDetailModal from './AdminDetailModal.vue'
+import AdminPaginatedListView from './AdminPaginatedListView.vue'
 import { apiRequest } from '../../lib/api'
 
-const isLoading = ref(false)
+const listViewRef = ref(null)
 const isDetailsLoading = ref(false)
 const isSavingCourse = ref(false)
 const isSavingCohort = ref(false)
 const isSavingCategory = ref(false)
+const isCourseModalOpen = ref(false)
 const feedbackMessage = ref('')
 const feedbackState = ref('idle')
-const search = ref('')
+const searchDraft = ref('')
 const categories = ref([])
-const courses = ref([])
 const courseDetails = ref(null)
 const selectedCourseId = ref(null)
 const selectedCohortId = ref(null)
+
+const requestParams = reactive({
+  q: '',
+})
 
 const categoryForm = reactive({
   name: '',
@@ -24,20 +30,6 @@ const categoryForm = reactive({
 
 const courseForm = reactive(createEmptyCourseForm())
 const cohortForm = reactive(createEmptyCohortForm())
-
-const filteredCourses = computed(() => {
-  const query = search.value.trim().toLowerCase()
-
-  if (!query) {
-    return courses.value
-  }
-
-  return courses.value.filter((course) =>
-    [course.title, course.slug, course.categoryName, course.publicationStatus]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query)),
-  )
-})
 
 const selectedCourse = computed(() => courseDetails.value?.course || null)
 const selectedCourseCohorts = computed(() => courseDetails.value?.cohorts || [])
@@ -133,19 +125,17 @@ async function loadCategories() {
   categories.value = result.items || []
 }
 
-async function loadCourses() {
-  isLoading.value = true
+async function fetchCoursesPage({ page, pageSize, requestParams: params }) {
+  const query = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  })
 
-  try {
-    const result = await apiRequest('/api/admin/courses')
-    courses.value = result.items || []
-
-    if (!selectedCourseId.value && result.items?.length) {
-      selectedCourseId.value = result.items[0].id
-    }
-  } finally {
-    isLoading.value = false
+  if (params.q) {
+    query.set('q', params.q)
   }
+
+  return apiRequest(`/api/admin/courses?${query.toString()}`)
 }
 
 async function loadCourseDetails(courseId) {
@@ -161,26 +151,49 @@ async function loadCourseDetails(courseId) {
   try {
     const result = await apiRequest(`/api/admin/courses/${courseId}`)
     courseDetails.value = result.item
-    syncCourseForm(result.item.course)
+    selectedCourseId.value = courseId
     selectedCohortId.value = null
+    syncCourseForm(result.item.course)
     syncCohortForm(null)
   } finally {
     isDetailsLoading.value = false
   }
 }
 
+function applyFilters() {
+  requestParams.q = searchDraft.value.trim()
+}
+
+function clearFilters() {
+  searchDraft.value = ''
+  requestParams.q = ''
+}
+
 function startNewCourse() {
   clearFeedback()
+  isCourseModalOpen.value = true
   selectedCourseId.value = null
-  courseDetails.value = null
   selectedCohortId.value = null
+  courseDetails.value = null
   syncCourseForm(null)
   syncCohortForm(null)
 }
 
-function editCourse(courseId) {
+async function openCourseDetail(course) {
   clearFeedback()
-  selectedCourseId.value = courseId
+  isCourseModalOpen.value = true
+  selectedCourseId.value = course.id
+
+  try {
+    await loadCourseDetails(course.id)
+  } catch (error) {
+    setFeedback(error.message || 'No fue posible cargar el detalle del curso.', 'error')
+  }
+}
+
+function closeCourseModal() {
+  isCourseModalOpen.value = false
+  clearFeedback()
 }
 
 function startNewCohort() {
@@ -251,14 +264,13 @@ async function handleSaveCourse() {
       body: JSON.stringify(payload),
     })
 
-    await loadCourses()
-
     if (result.item?.course?.id) {
       selectedCourseId.value = result.item.course.id
       courseDetails.value = result.item
       syncCourseForm(result.item.course)
     }
 
+    await listViewRef.value?.refresh()
     setFeedback(result.message || 'Curso guardado correctamente.')
   } catch (error) {
     setFeedback(error.message || 'No fue posible guardar el curso.', 'error')
@@ -303,6 +315,7 @@ async function handleSaveCohort() {
       syncCohortForm(result.item)
     }
 
+    await listViewRef.value?.refresh()
     setFeedback(result.message || 'Cohorte guardada correctamente.')
   } catch (error) {
     setFeedback(error.message || 'No fue posible guardar la cohorte.', 'error')
@@ -311,75 +324,56 @@ async function handleSaveCohort() {
   }
 }
 
-watch(selectedCourseId, async (courseId) => {
-  await loadCourseDetails(courseId)
-})
-
 onMounted(async () => {
   try {
-    await Promise.all([loadCategories(), loadCourses()])
-
-    if (!selectedCourseId.value) {
-      startNewCourse()
-    }
+    await loadCategories()
   } catch (error) {
-    setFeedback(error.message || 'No fue posible cargar el módulo de cursos.', 'error')
+    setFeedback(error.message || 'No fue posible cargar las categorías.', 'error')
   }
 })
 </script>
 
 <template>
-  <div class="admin-module-card">
-    <div class="admin-module-toolbar admin-toolbar-inline">
-      <div class="admin-panel-title">
-        <span class="admin-panel-kicker">Cursos</span>
-        <h3>Catálogo, publicación y cohortes</h3>
-        <p>
-          Desde aquí ya podemos crear el curso base, publicarlo, abrir cohortes y dejar lista la
-          inscripción pública.
-        </p>
-      </div>
-    </div>
-
-    <p
-      v-if="feedbackMessage"
-      class="form-feedback admin-feedback"
-      :class="feedbackState === 'error' ? 'is-error' : 'is-success'"
+  <div class="admin-list-module">
+    <AdminPaginatedListView
+      ref="listViewRef"
+      title="Catálogo de cursos"
+      description="El listado es la vista principal. La edición completa del curso y sus cohortes vive en un modal para mantener el foco en la navegación."
+      empty-message="Aún no hay cursos creados."
+      :fetch-page="fetchCoursesPage"
+      :request-params="requestParams"
+      :selected-item-id="selectedCourseId"
+      :initial-page-size="10"
     >
-      {{ feedbackMessage }}
-    </p>
-
-    <div class="admin-toolbar">
-      <div class="admin-toolbar-actions">
-        <button class="button button-outline" type="button" :disabled="isLoading" @click="loadCourses">
+      <template #header-actions="{ isLoading, refresh }">
+        <button class="button button-outline" type="button" :disabled="isLoading" @click="refresh">
           {{ isLoading ? 'Actualizando...' : 'Actualizar cursos' }}
         </button>
         <button class="button button-solid" type="button" @click="startNewCourse">Nuevo curso</button>
-      </div>
-    </div>
+      </template>
 
-    <div class="admin-courses-layout">
-      <aside class="admin-courses-sidebar">
-        <div class="admin-filters">
+      <template #filters>
+        <div class="admin-filters admin-inline-filters">
           <input
-            v-model="search"
+            v-model="searchDraft"
             type="search"
             placeholder="Buscar por título, slug, categoría o estado"
+            @keyup.enter="applyFilters"
           />
+          <button class="button button-outline" type="button" @click="applyFilters">Buscar</button>
+          <button class="button button-ghost" type="button" @click="clearFilters">Limpiar</button>
         </div>
+      </template>
 
-        <div v-if="!filteredCourses.length && !isLoading" class="empty-state">
-          Aún no hay cursos creados. Puedes empezar desde el formulario de la derecha.
-        </div>
-
+      <template #default="{ items }">
         <div class="admin-course-list">
           <button
-            v-for="course in filteredCourses"
+            v-for="course in items"
             :key="course.id"
             type="button"
             class="admin-course-list-item"
-            :class="{ 'is-active': course.id === selectedCourseId }"
-            @click="editCourse(course.id)"
+            :class="{ 'is-active': course.id === selectedCourseId && isCourseModalOpen }"
+            @click="openCourseDetail(course)"
           >
             <div class="admin-course-list-header">
               <strong>{{ course.title }}</strong>
@@ -394,277 +388,297 @@ onMounted(async () => {
             </div>
           </button>
         </div>
-      </aside>
+      </template>
+    </AdminPaginatedListView>
 
-      <div class="admin-courses-workspace">
-        <section class="admin-form-card">
-          <div class="admin-results-header">
-            <div>
-              <span>Ficha del curso</span>
-              <h3>{{ selectedCourse ? selectedCourse.title : 'Nuevo curso' }}</h3>
+    <AdminDetailModal
+      :open="isCourseModalOpen"
+      :title="selectedCourse ? selectedCourse.title : 'Nuevo curso'"
+      :subtitle="selectedCourse ? 'Edición completa del curso y sus cohortes' : 'Crea un nuevo curso desde el modal de detalle'"
+      size="xl"
+      @close="closeCourseModal"
+    >
+      <div class="admin-modal-stack">
+        <p
+          v-if="feedbackMessage"
+          class="form-feedback admin-feedback"
+          :class="feedbackState === 'error' ? 'is-error' : 'is-success'"
+        >
+          {{ feedbackMessage }}
+        </p>
+
+        <div v-if="isDetailsLoading" class="empty-state">Cargando detalle del curso...</div>
+
+        <template v-else>
+          <section class="admin-form-card">
+            <div class="admin-results-header">
+              <div>
+                <span>Ficha del curso</span>
+                <h3>{{ selectedCourse ? selectedCourse.title : 'Nuevo curso' }}</h3>
+              </div>
             </div>
-          </div>
 
-          <div class="admin-form-grid">
-            <label>
-              <span>Título</span>
-              <input v-model="courseForm.title" type="text" placeholder="Rescate industrial y vertical" />
-            </label>
+            <div class="admin-form-grid">
+              <label>
+                <span>Título</span>
+                <input v-model="courseForm.title" type="text" placeholder="Rescate industrial y vertical" />
+              </label>
 
-            <label>
-              <span>Slug</span>
-              <input v-model="courseForm.slug" type="text" placeholder="rescate-industrial-vertical" />
-            </label>
+              <label>
+                <span>Slug</span>
+                <input v-model="courseForm.slug" type="text" placeholder="rescate-industrial-vertical" />
+              </label>
 
-            <label>
-              <span>Categoría</span>
-              <select v-model="courseForm.categoryId">
-                <option value="">Sin categoría</option>
-                <option v-for="category in categories" :key="category.id" :value="String(category.id)">
-                  {{ category.name }}
-                </option>
-              </select>
-            </label>
+              <label>
+                <span>Categoría</span>
+                <select v-model="courseForm.categoryId">
+                  <option value="">Sin categoría</option>
+                  <option v-for="category in categories" :key="category.id" :value="String(category.id)">
+                    {{ category.name }}
+                  </option>
+                </select>
+              </label>
 
-            <label>
-              <span>Nombre de categoría nueva</span>
-              <input v-model="courseForm.categoryName" type="text" placeholder="Trabajo seguro en alturas" />
-            </label>
+              <label>
+                <span>Nombre de categoría nueva</span>
+                <input v-model="courseForm.categoryName" type="text" placeholder="Trabajo seguro en alturas" />
+              </label>
 
-            <label>
-              <span>Modalidad</span>
-              <select v-model="courseForm.modality">
-                <option value="mixed">Mixta</option>
-                <option value="virtual">Virtual</option>
-                <option value="presential">Presencial</option>
-              </select>
-            </label>
+              <label>
+                <span>Modalidad</span>
+                <select v-model="courseForm.modality">
+                  <option value="mixed">Mixta</option>
+                  <option value="virtual">Virtual</option>
+                  <option value="presential">Presencial</option>
+                </select>
+              </label>
 
-            <label>
-              <span>Nivel</span>
-              <input v-model="courseForm.level" type="text" placeholder="avanzado" />
-            </label>
+              <label>
+                <span>Nivel</span>
+                <input v-model="courseForm.level" type="text" placeholder="avanzado" />
+              </label>
 
-            <label>
-              <span>Duración en horas</span>
-              <input v-model="courseForm.durationHours" type="number" min="0" />
-            </label>
+              <label>
+                <span>Duración en horas</span>
+                <input v-model="courseForm.durationHours" type="number" min="0" />
+              </label>
 
-            <label>
-              <span>Precio en centavos</span>
-              <input v-model="courseForm.priceCents" type="number" min="0" />
-            </label>
+              <label>
+                <span>Precio en centavos</span>
+                <input v-model="courseForm.priceCents" type="number" min="0" />
+              </label>
 
-            <label>
-              <span>Moneda</span>
-              <input v-model="courseForm.currency" type="text" maxlength="3" />
-            </label>
+              <label>
+                <span>Moneda</span>
+                <input v-model="courseForm.currency" type="text" maxlength="3" />
+              </label>
 
-            <label>
-              <span>Estado</span>
-              <select v-model="courseForm.publicationStatus">
-                <option value="draft">Borrador</option>
-                <option value="published">Publicado</option>
-                <option value="archived">Archivado</option>
-              </select>
-            </label>
+              <label>
+                <span>Estado</span>
+                <select v-model="courseForm.publicationStatus">
+                  <option value="draft">Borrador</option>
+                  <option value="published">Publicado</option>
+                  <option value="archived">Archivado</option>
+                </select>
+              </label>
 
-            <label class="admin-field-wide">
-              <span>Descripción corta</span>
-              <textarea
-                v-model="courseForm.shortDescription"
-                rows="2"
-                placeholder="Resumen comercial que se verá en el catálogo."
-              ></textarea>
-            </label>
+              <label class="admin-field-wide">
+                <span>Descripción corta</span>
+                <textarea
+                  v-model="courseForm.shortDescription"
+                  rows="2"
+                  placeholder="Resumen comercial que se verá en el catálogo."
+                ></textarea>
+              </label>
 
-            <label class="admin-field-wide">
-              <span>Descripción completa</span>
-              <textarea
-                v-model="courseForm.description"
-                rows="5"
-                placeholder="Detalle del curso, alcance, metodología y propuesta de valor."
-              ></textarea>
-            </label>
+              <label class="admin-field-wide">
+                <span>Descripción completa</span>
+                <textarea
+                  v-model="courseForm.description"
+                  rows="5"
+                  placeholder="Detalle del curso, alcance, metodología y propuesta de valor."
+                ></textarea>
+              </label>
 
-            <label class="admin-field-wide">
-              <span>Objetivos de aprendizaje</span>
-              <textarea
-                v-model="courseForm.learningObjectives"
-                rows="4"
-                placeholder="Objetivos, competencias o resultados esperados."
-              ></textarea>
-            </label>
+              <label class="admin-field-wide">
+                <span>Objetivos de aprendizaje</span>
+                <textarea
+                  v-model="courseForm.learningObjectives"
+                  rows="4"
+                  placeholder="Objetivos, competencias o resultados esperados."
+                ></textarea>
+              </label>
 
-            <label class="admin-field-wide">
-              <span>Público objetivo</span>
-              <textarea
-                v-model="courseForm.targetAudience"
-                rows="3"
-                placeholder="Brigadistas, coordinadores HSEQ, personal operativo..."
-              ></textarea>
-            </label>
+              <label class="admin-field-wide">
+                <span>Público objetivo</span>
+                <textarea
+                  v-model="courseForm.targetAudience"
+                  rows="3"
+                  placeholder="Brigadistas, coordinadores HSEQ, personal operativo..."
+                ></textarea>
+              </label>
 
-            <label class="admin-field-wide">
-              <span>Imagen de portada</span>
-              <input v-model="courseForm.coverImageUrl" type="url" placeholder="https://..." />
-            </label>
-          </div>
-
-          <div class="admin-form-actions">
-            <button class="button button-solid" type="button" :disabled="isSavingCourse" @click="handleSaveCourse">
-              {{ isSavingCourse ? 'Guardando...' : selectedCourseId ? 'Actualizar curso' : 'Crear curso' }}
-            </button>
-            <button class="button button-outline" type="button" @click="startNewCourse">Limpiar</button>
-          </div>
-        </section>
-
-        <section class="admin-form-card">
-          <div class="admin-results-header">
-            <div>
-              <span>Categorías</span>
-              <h3>Alta rápida de categorías</h3>
+              <label class="admin-field-wide">
+                <span>Imagen de portada</span>
+                <input v-model="courseForm.coverImageUrl" type="url" placeholder="https://..." />
+              </label>
             </div>
-          </div>
 
-          <div class="admin-form-grid compact-grid">
-            <label>
-              <span>Nombre</span>
-              <input v-model="categoryForm.name" type="text" placeholder="Rescate industrial" />
-            </label>
-
-            <label>
-              <span>Slug opcional</span>
-              <input v-model="categoryForm.slug" type="text" placeholder="rescate-industrial" />
-            </label>
-
-            <label class="admin-field-wide">
-              <span>Descripción</span>
-              <textarea v-model="categoryForm.description" rows="2"></textarea>
-            </label>
-          </div>
-
-          <div class="admin-form-actions">
-            <button class="button button-outline" type="button" :disabled="isSavingCategory" @click="handleCreateCategory">
-              {{ isSavingCategory ? 'Creando...' : 'Crear categoría' }}
-            </button>
-          </div>
-        </section>
-
-        <section class="admin-form-card">
-          <div class="admin-results-header">
-            <div>
-              <span>Cohortes</span>
-              <h3>{{ selectedCourse ? `Operación de ${selectedCourse.title}` : 'Guarda un curso para crear cohortes' }}</h3>
+            <div class="admin-form-actions">
+              <button class="button button-solid" type="button" :disabled="isSavingCourse" @click="handleSaveCourse">
+                {{ isSavingCourse ? 'Guardando...' : selectedCourseId ? 'Actualizar curso' : 'Crear curso' }}
+              </button>
+              <button class="button button-outline" type="button" @click="startNewCourse">Limpiar</button>
             </div>
-            <button
-              class="button button-outline"
-              type="button"
-              :disabled="!selectedCourseId || isDetailsLoading"
-              @click="startNewCohort"
-            >
-              Nueva cohorte
-            </button>
-          </div>
+          </section>
 
-          <div v-if="selectedCourseCohorts.length" class="admin-cohort-list">
-            <button
-              v-for="cohort in selectedCourseCohorts"
-              :key="cohort.id"
-              type="button"
-              class="admin-cohort-chip"
-              :class="{ 'is-active': cohort.id === selectedCohortId }"
-              @click="editCohort(cohort)"
-            >
-              <strong>{{ cohort.title || cohort.code }}</strong>
-              <small>{{ cohort.startDate }} · {{ cohort.status }}</small>
-            </button>
-          </div>
+          <section class="admin-form-card">
+            <div class="admin-results-header">
+              <div>
+                <span>Categorías</span>
+                <h3>Alta rápida de categorías</h3>
+              </div>
+            </div>
 
-          <div v-if="selectedCourseId" class="admin-form-grid compact-grid">
-            <label>
-              <span>Título de cohorte</span>
-              <input v-model="cohortForm.title" type="text" placeholder="Grupo Mayo 2026" />
-            </label>
+            <div class="admin-form-grid compact-grid">
+              <label>
+                <span>Nombre</span>
+                <input v-model="categoryForm.name" type="text" placeholder="Rescate industrial" />
+              </label>
 
-            <label>
-              <span>Código</span>
-              <input v-model="cohortForm.code" type="text" placeholder="ALTURAS-0526" />
-            </label>
+              <label>
+                <span>Slug opcional</span>
+                <input v-model="categoryForm.slug" type="text" placeholder="rescate-industrial" />
+              </label>
 
-            <label>
-              <span>Fecha de inicio</span>
-              <input v-model="cohortForm.startDate" type="date" />
-            </label>
+              <label class="admin-field-wide">
+                <span>Descripción</span>
+                <textarea v-model="categoryForm.description" rows="2"></textarea>
+              </label>
+            </div>
 
-            <label>
-              <span>Fecha de cierre</span>
-              <input v-model="cohortForm.endDate" type="date" />
-            </label>
+            <div class="admin-form-actions">
+              <button class="button button-outline" type="button" :disabled="isSavingCategory" @click="handleCreateCategory">
+                {{ isSavingCategory ? 'Creando...' : 'Crear categoría' }}
+              </button>
+            </div>
+          </section>
 
-            <label>
-              <span>Apertura inscripciones</span>
-              <input v-model="cohortForm.enrollmentOpenAt" type="date" />
-            </label>
+          <section class="admin-form-card">
+            <div class="admin-results-header">
+              <div>
+                <span>Cohortes</span>
+                <h3>{{ selectedCourse ? `Operación de ${selectedCourse.title}` : 'Guarda un curso para crear cohortes' }}</h3>
+              </div>
+              <button
+                class="button button-outline"
+                type="button"
+                :disabled="!selectedCourseId || isDetailsLoading"
+                @click="startNewCohort"
+              >
+                Nueva cohorte
+              </button>
+            </div>
 
-            <label>
-              <span>Cierre inscripciones</span>
-              <input v-model="cohortForm.enrollmentCloseAt" type="date" />
-            </label>
+            <div v-if="selectedCourseCohorts.length" class="admin-cohort-list">
+              <button
+                v-for="cohort in selectedCourseCohorts"
+                :key="cohort.id"
+                type="button"
+                class="admin-cohort-chip"
+                :class="{ 'is-active': cohort.id === selectedCohortId }"
+                @click="editCohort(cohort)"
+              >
+                <strong>{{ cohort.title || cohort.code }}</strong>
+                <small>{{ cohort.startDate }} · {{ cohort.status }}</small>
+              </button>
+            </div>
 
-            <label>
-              <span>Cupos</span>
-              <input v-model="cohortForm.capacity" type="number" min="0" />
-            </label>
+            <div v-if="selectedCourseId" class="admin-form-grid compact-grid">
+              <label>
+                <span>Título de cohorte</span>
+                <input v-model="cohortForm.title" type="text" placeholder="Grupo Mayo 2026" />
+              </label>
 
-            <label>
-              <span>Instructor</span>
-              <input v-model="cohortForm.instructorName" type="text" placeholder="Instructor principal" />
-            </label>
+              <label>
+                <span>Código</span>
+                <input v-model="cohortForm.code" type="text" placeholder="ALTURAS-0526" />
+              </label>
 
-            <label>
-              <span>Ubicación</span>
-              <input v-model="cohortForm.location" type="text" placeholder="Bogotá / In company" />
-            </label>
+              <label>
+                <span>Fecha de inicio</span>
+                <input v-model="cohortForm.startDate" type="date" />
+              </label>
 
-            <label>
-              <span>Estado</span>
-              <select v-model="cohortForm.status">
-                <option value="draft">Borrador</option>
-                <option value="published">Publicada</option>
-                <option value="closed">Cerrada</option>
-                <option value="cancelled">Cancelada</option>
-              </select>
-            </label>
+              <label>
+                <span>Fecha de cierre</span>
+                <input v-model="cohortForm.endDate" type="date" />
+              </label>
 
-            <label>
-              <span>Precio cohorte</span>
-              <input v-model="cohortForm.priceCents" type="number" min="0" />
-            </label>
+              <label>
+                <span>Apertura inscripciones</span>
+                <input v-model="cohortForm.enrollmentOpenAt" type="date" />
+              </label>
 
-            <label>
-              <span>Moneda</span>
-              <input v-model="cohortForm.currency" type="text" maxlength="3" />
-            </label>
+              <label>
+                <span>Cierre inscripciones</span>
+                <input v-model="cohortForm.enrollmentCloseAt" type="date" />
+              </label>
 
-            <label class="admin-field-wide">
-              <span>URL pública opcional</span>
-              <input v-model="cohortForm.publicUrl" type="url" placeholder="https://..." />
-            </label>
-          </div>
+              <label>
+                <span>Cupos</span>
+                <input v-model="cohortForm.capacity" type="number" min="0" />
+              </label>
 
-          <div v-else class="empty-state">
-            Primero crea o selecciona un curso para empezar a administrar sus cohortes.
-          </div>
+              <label>
+                <span>Instructor</span>
+                <input v-model="cohortForm.instructorName" type="text" placeholder="Instructor principal" />
+              </label>
 
-          <div v-if="selectedCourseId" class="admin-form-actions">
-            <button class="button button-solid" type="button" :disabled="isSavingCohort" @click="handleSaveCohort">
-              {{ isSavingCohort ? 'Guardando...' : selectedCohortId ? 'Actualizar cohorte' : 'Crear cohorte' }}
-            </button>
-            <button class="button button-outline" type="button" @click="startNewCohort">Limpiar cohorte</button>
-          </div>
-        </section>
+              <label>
+                <span>Ubicación</span>
+                <input v-model="cohortForm.location" type="text" placeholder="Bogotá / In company" />
+              </label>
+
+              <label>
+                <span>Estado</span>
+                <select v-model="cohortForm.status">
+                  <option value="draft">Borrador</option>
+                  <option value="published">Publicada</option>
+                  <option value="closed">Cerrada</option>
+                  <option value="cancelled">Cancelada</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Precio cohorte</span>
+                <input v-model="cohortForm.priceCents" type="number" min="0" />
+              </label>
+
+              <label>
+                <span>Moneda</span>
+                <input v-model="cohortForm.currency" type="text" maxlength="3" />
+              </label>
+
+              <label class="admin-field-wide">
+                <span>URL pública opcional</span>
+                <input v-model="cohortForm.publicUrl" type="url" placeholder="https://..." />
+              </label>
+            </div>
+
+            <div v-else class="empty-state">
+              Primero crea o selecciona un curso para empezar a administrar sus cohortes.
+            </div>
+
+            <div v-if="selectedCourseId" class="admin-form-actions">
+              <button class="button button-solid" type="button" :disabled="isSavingCohort" @click="handleSaveCohort">
+                {{ isSavingCohort ? 'Guardando...' : selectedCohortId ? 'Actualizar cohorte' : 'Crear cohorte' }}
+              </button>
+              <button class="button button-outline" type="button" @click="startNewCohort">Limpiar cohorte</button>
+            </div>
+          </section>
+        </template>
       </div>
-    </div>
+    </AdminDetailModal>
   </div>
 </template>
