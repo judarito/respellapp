@@ -481,7 +481,7 @@ function getDefaultLandingContent() {
       coursesEyebrow: 'Cursos destacados',
       coursesTitle: 'Catálogo público conectado a los cursos publicados',
       platformEyebrow: 'Plataforma',
-      platformTitle: 'Base funcional para crecer hacia gestión académica y ventas online',
+      platformTitle: 'Base funcional para crecer hacia gestión académica y ventas en línea',
       contactEyebrow: 'Solicita información',
       contactTitle: 'Landing comercial con enfoque en conversión',
       primaryEmail: 'respellcompany@gmail.com',
@@ -490,13 +490,13 @@ function getDefaultLandingContent() {
       secondaryPhone: '310 8110995',
       whatsappNumber: '318 0349298',
       address: '',
-      footerText: 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.',
+      footerText: 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas en línea.',
     },
     hero: {
       eyebrow: 'Rescate industrial y trabajo en altura',
       title: 'Líderes en rescate industrial y trabajo en altura',
       subtitle:
-        'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.',
+        'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial en línea desde una misma experiencia.',
       primaryCtaLabel: 'Ver cursos',
       primaryCtaUrl: '/cursos',
       secondaryCtaLabel: 'Ver plataforma',
@@ -582,14 +582,14 @@ function getDefaultLandingContent() {
       },
       {
         eyebrow: 'Operación comercial',
-        title: 'Ventas online',
-        text: 'Base pensada para conectar checkout, órdenes y pasarela. Dejé el bloque listo para integrar Ofirone.',
+        title: 'Ventas en línea',
+        text: 'Base pensada para conectar checkout, órdenes y pasarela. El bloque queda listo para integrar Ofirone.',
         bulletsText: 'Inscripción por curso\nÓrdenes y estados\nIntegración futura con pagos',
         displayOrder: 2,
         isActive: true,
       },
       {
-        eyebrow: 'Backoffice',
+        eyebrow: 'Gestión interna',
         title: 'Seguimiento y leads',
         text: 'Centraliza solicitudes, formularios, empresas interesadas y seguimiento comercial.',
         bulletsText: 'Contactos y cotizaciones\nEmbudo comercial\nPanel para asesores',
@@ -1016,7 +1016,7 @@ async function loadLandingContent() {
       coursesTitle: settingsRow.courses_title || 'Catálogo público conectado a los cursos publicados',
       platformEyebrow: settingsRow.platform_eyebrow || 'Plataforma',
       platformTitle:
-        settingsRow.platform_title || 'Base funcional para crecer hacia gestión académica y ventas online',
+        settingsRow.platform_title || 'Base funcional para crecer hacia gestión académica y ventas en línea',
       contactEyebrow: settingsRow.contact_eyebrow || 'Solicita información',
       contactTitle: settingsRow.contact_title || 'Landing comercial con enfoque en conversión',
       primaryEmail: settingsRow.primary_email || '',
@@ -1812,7 +1812,7 @@ const server = http.createServer(async (req, res) => {
       const session = await getCurrentSession(req)
 
       if (!session) {
-        return sendJson(req, res, 401, { ok: false, message: 'No authenticated session.' })
+        return sendJson(req, res, 401, { ok: false, message: 'No hay una sesión autenticada.' })
       }
 
       return sendJson(req, res, 200, { ok: true, user: session.user })
@@ -3116,7 +3116,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  return sendJson(req, res, 404, { ok: false, message: 'Route not found.' })
+  return sendJson(req, res, 404, { ok: false, message: 'Ruta no encontrada.' })
 })
 
 ensureSchema()

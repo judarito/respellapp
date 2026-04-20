@@ -23,7 +23,7 @@ function createDefaultLandingForm() {
       coursesEyebrow: 'Cursos destacados',
       coursesTitle: 'Catálogo público conectado a los cursos publicados',
       platformEyebrow: 'Plataforma',
-      platformTitle: 'Base funcional para crecer hacia gestión académica y ventas online',
+      platformTitle: 'Base funcional para crecer hacia gestión académica y ventas en línea',
       contactEyebrow: 'Solicita información',
       contactTitle: 'Landing comercial con enfoque en conversión',
       primaryEmail: '',
@@ -253,7 +253,7 @@ async function handleHeroImageSelected(event) {
     })
 
     landingForm.hero.backgroundImageUrl = result.item?.secureUrl || ''
-    setFeedback('Imagen del hero subida correctamente.')
+    setFeedback('Imagen del encabezado subida correctamente.')
   } catch (error) {
     setFeedback(error.message || 'No fue posible subir la imagen.', 'error')
   } finally {
@@ -314,8 +314,9 @@ onMounted(loadLandingContent)
         <span class="admin-panel-kicker">Landing</span>
         <h3>Contenido dinámico del sitio público</h3>
         <p>
-          Aquí administras el hero, contacto, servicios, testimonios, métricas y bloques de la
-          landing, además de subir la imagen principal a Cloudinary.
+          Aquí administras el encabezado principal, el contacto, los servicios, los testimonios,
+          las métricas y los bloques de la landing, además de subir la imagen principal a
+          Cloudinary.
         </p>
       </div>
     </div>
@@ -334,7 +335,7 @@ onMounted(loadLandingContent)
           {{ isLoading ? 'Actualizando...' : 'Recargar contenido' }}
         </button>
         <button class="button button-solid" type="button" :disabled="isSaving" @click="handleSave">
-          {{ isSaving ? 'Guardando...' : 'Guardar landing' }}
+          {{ isSaving ? 'Guardando...' : 'Guardar contenido' }}
         </button>
       </div>
     </div>
@@ -344,7 +345,7 @@ onMounted(loadLandingContent)
         <div class="admin-results-header">
           <div>
             <span>Configuración general</span>
-            <h3>Empresa, contacto y footer</h3>
+            <h3>Empresa, contacto y pie de página</h3>
           </div>
         </div>
 
@@ -358,11 +359,11 @@ onMounted(loadLandingContent)
             <input v-model="landingForm.settings.legalName" type="text" />
           </label>
           <label class="admin-field-wide">
-            <span>Tagline</span>
+            <span>Lema</span>
             <input v-model="landingForm.settings.tagline" type="text" />
           </label>
           <label>
-            <span>Eyebrow servicios</span>
+            <span>Texto superior de servicios</span>
             <input v-model="landingForm.settings.servicesEyebrow" type="text" />
           </label>
           <label class="admin-field-wide">
@@ -370,7 +371,7 @@ onMounted(loadLandingContent)
             <input v-model="landingForm.settings.servicesTitle" type="text" />
           </label>
           <label>
-            <span>Eyebrow testimonios</span>
+            <span>Texto superior de testimonios</span>
             <input v-model="landingForm.settings.testimonialsEyebrow" type="text" />
           </label>
           <label class="admin-field-wide">
@@ -378,7 +379,7 @@ onMounted(loadLandingContent)
             <input v-model="landingForm.settings.testimonialsTitle" type="text" />
           </label>
           <label>
-            <span>Eyebrow cursos</span>
+            <span>Texto superior de cursos</span>
             <input v-model="landingForm.settings.coursesEyebrow" type="text" />
           </label>
           <label class="admin-field-wide">
@@ -386,7 +387,7 @@ onMounted(loadLandingContent)
             <input v-model="landingForm.settings.coursesTitle" type="text" />
           </label>
           <label>
-            <span>Eyebrow plataforma</span>
+            <span>Texto superior de plataforma</span>
             <input v-model="landingForm.settings.platformEyebrow" type="text" />
           </label>
           <label class="admin-field-wide">
@@ -394,7 +395,7 @@ onMounted(loadLandingContent)
             <input v-model="landingForm.settings.platformTitle" type="text" />
           </label>
           <label>
-            <span>Eyebrow contacto</span>
+            <span>Texto superior de contacto</span>
             <input v-model="landingForm.settings.contactEyebrow" type="text" />
           </label>
           <label class="admin-field-wide">
@@ -426,7 +427,7 @@ onMounted(loadLandingContent)
             <input v-model="landingForm.settings.address" type="text" />
           </label>
           <label class="admin-field-wide">
-            <span>Texto de footer</span>
+            <span>Texto del pie de página</span>
             <textarea v-model="landingForm.settings.footerText" rows="3"></textarea>
           </label>
         </div>
@@ -435,14 +436,14 @@ onMounted(loadLandingContent)
       <section class="admin-form-card">
         <div class="admin-results-header">
           <div>
-            <span>Hero</span>
+            <span>Encabezado principal</span>
             <h3>Cabecera principal</h3>
           </div>
         </div>
 
         <div class="admin-form-grid">
           <label>
-            <span>Eyebrow</span>
+            <span>Texto superior</span>
             <input v-model="landingForm.hero.eyebrow" type="text" />
           </label>
           <label>
@@ -492,7 +493,7 @@ onMounted(loadLandingContent)
 
         <div class="admin-upload-row">
           <label class="button button-outline admin-upload-button">
-            {{ isUploadingHero ? 'Subiendo...' : 'Subir imagen del hero' }}
+            {{ isUploadingHero ? 'Subiendo...' : 'Subir imagen del encabezado' }}
             <input type="file" accept="image/*" :disabled="isUploadingHero" @change="handleHeroImageSelected" />
           </label>
           <small>{{ landingForm.hero.backgroundImageUrl || 'Aún no hay imagen subida.' }}</small>
@@ -572,7 +573,7 @@ onMounted(loadLandingContent)
                 <input v-model="item.authorName" type="text" />
               </label>
               <label>
-                <span>Rating</span>
+                <span>Calificación</span>
                 <input v-model="item.rating" type="number" min="1" max="5" />
               </label>
               <label>
@@ -599,7 +600,7 @@ onMounted(loadLandingContent)
         <div class="admin-results-header">
           <div>
             <span>Métricas</span>
-            <h3>Indicadores del hero</h3>
+            <h3>Indicadores del encabezado</h3>
           </div>
           <button class="button button-outline" type="button" @click="addMetric">Agregar métrica</button>
         </div>
@@ -656,7 +657,7 @@ onMounted(loadLandingContent)
             </div>
             <div class="admin-form-grid compact-grid">
               <label>
-                <span>Eyebrow</span>
+                <span>Texto superior</span>
                 <input v-model="item.eyebrow" type="text" />
               </label>
               <label>
@@ -679,7 +680,7 @@ onMounted(loadLandingContent)
                 <textarea v-model="item.text" rows="4"></textarea>
               </label>
               <label class="admin-field-wide">
-                <span>Bullets (una línea por bullet)</span>
+                <span>Viñetas (una línea por viñeta)</span>
                 <textarea v-model="item.bulletsText" rows="5"></textarea>
               </label>
             </div>

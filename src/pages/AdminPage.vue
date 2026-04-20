@@ -16,9 +16,9 @@ const adminModules = [
     id: 'landing',
     tag: 'LP',
     label: 'Landing',
-    description: 'Hero y secciones',
+    description: 'Encabezado y secciones',
     longDescription:
-      'Administración del contenido comercial del sitio público: hero, contacto, servicios, métricas, testimonios y bloques de valor.',
+      'Administración del contenido comercial del sitio público: encabezado principal, contacto, servicios, métricas, testimonios y bloques de valor.',
   },
   {
     id: 'contacts',
@@ -50,7 +50,7 @@ const adminModules = [
     label: 'Ventas',
     description: 'Órdenes y pagos',
     longDescription:
-      'Espacio previsto para ventas online, checkout, estados de orden e integraciones con la operación comercial.',
+      'Espacio previsto para ventas en línea, checkout, estados de orden e integraciones con la operación comercial.',
   },
   {
     id: 'users',

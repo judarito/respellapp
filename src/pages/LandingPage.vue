@@ -14,13 +14,13 @@ const defaultLandingContent = {
     secondaryPhone: '310 8110995',
     whatsappNumber: '318 0349298',
     address: '',
-    footerText: 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.',
+    footerText: 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas en línea.',
   },
   hero: {
     eyebrow: 'Rescate industrial y trabajo en altura',
     title: 'Líderes en rescate industrial y trabajo en altura',
     subtitle:
-      'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.',
+      'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial en línea desde una misma experiencia.',
     primaryCtaLabel: 'Ver cursos',
     primaryCtaUrl: '/cursos',
     secondaryCtaLabel: 'Ver plataforma',
@@ -95,13 +95,13 @@ const defaultLandingContent = {
     },
     {
       eyebrow: 'Operación comercial',
-      title: 'Ventas online',
-      text: 'Base pensada para conectar checkout, órdenes y pasarela. Dejé el bloque listo para integrar Ofirone.',
+      title: 'Ventas en línea',
+      text: 'Base pensada para conectar checkout, órdenes y pasarela. El bloque queda listo para integrar Ofirone.',
       bulletsText: 'Inscripción por curso\nÓrdenes y estados\nIntegración futura con pagos',
       isActive: true,
     },
     {
-      eyebrow: 'Backoffice',
+      eyebrow: 'Gestión interna',
       title: 'Seguimiento y leads',
       text: 'Centraliza solicitudes, formularios, empresas interesadas y seguimiento comercial.',
       bulletsText: 'Contactos y cotizaciones\nEmbudo comercial\nPanel para asesores',
@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
           <p>
             {{
               hero.subtitle ||
-              'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.'
+              'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial en línea desde una misma experiencia.'
             }}
           </p>
 
@@ -353,7 +353,7 @@ onBeforeUnmount(() => {
           <span class="eyebrow eyebrow-dark">{{ settings.platformEyebrow || 'Plataforma' }}</span>
           <h2>
             {{
-              settings.platformTitle || 'Base funcional para crecer hacia gestión académica y ventas online'
+              settings.platformTitle || 'Base funcional para crecer hacia gestión académica y ventas en línea'
             }}
           </h2>
         </div>
@@ -375,7 +375,7 @@ onBeforeUnmount(() => {
           <span class="eyebrow">{{ settings.contactEyebrow || 'Solicita información' }}</span>
           <h2>{{ settings.contactTitle || 'Landing comercial con enfoque en conversión' }}</h2>
           <p>
-            Dejé esta sección lista para convertirse en formulario conectado, captura de leads y
+            Esta sección está lista para convertirse en un formulario conectado, captura de leads y
             seguimiento de oportunidades.
           </p>
 
@@ -422,7 +422,7 @@ onBeforeUnmount(() => {
           <strong>{{ settings.companyName || 'Respell' }}</strong>
           <span>{{ settings.legalName || 'Rescate - Rapelling S.A.S' }}</span>
         </div>
-        <p>{{ settings.footerText || 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.' }}</p>
+        <p>{{ settings.footerText || 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas en línea.' }}</p>
       </footer>
     </main>
 

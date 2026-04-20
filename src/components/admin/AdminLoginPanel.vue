@@ -21,7 +21,7 @@ const emit = defineEmits(['update:email', 'update:password', 'submit'])
   <form class="admin-login-panel" @submit.prevent="emit('submit')">
     <div class="admin-panel-title">
       <span class="admin-panel-kicker">Acceso</span>
-      <h3>Login administrativo</h3>
+      <h3>Inicio de sesión administrativo</h3>
       <p>Autenticación protegida por backend y sesión persistida con cookie HttpOnly.</p>
     </div>
 
@@ -47,7 +47,7 @@ const emit = defineEmits(['update:email', 'update:password', 'submit'])
     </button>
 
     <p class="admin-helper">
-      Usa el usuario creado con `npm run create:admin -- correo@dominio.com tupassword`.
+      Usa el usuario creado con `npm run create:admin -- correo@dominio.com tu-contraseña`.
     </p>
   </form>
 </template>

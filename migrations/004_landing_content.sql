@@ -123,7 +123,7 @@ VALUES (
   'Cursos destacados',
   'Catálogo público conectado a los cursos publicados',
   'Plataforma',
-  'Base funcional para crecer hacia gestión académica y ventas online',
+  'Base funcional para crecer hacia gestión académica y ventas en línea',
   'Solicita información',
   'Landing comercial con enfoque en conversión',
   'respellcompany@gmail.com',
@@ -131,7 +131,7 @@ VALUES (
   '318 0349298',
   '310 8110995',
   '318 0349298',
-  'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.'
+  'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas en línea.'
 );
 
 INSERT OR IGNORE INTO homepage_hero (
@@ -152,7 +152,7 @@ VALUES (
   1,
   'Rescate industrial y trabajo en altura',
   'Líderes en rescate industrial y trabajo en altura',
-  'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.',
+  'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial en línea desde una misma experiencia.',
   'Ver cursos',
   '/cursos',
   'Ver plataforma',
