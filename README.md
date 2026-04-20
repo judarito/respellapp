@@ -20,6 +20,10 @@ Crea un archivo `.env` en la raíz con:
 TURSO_URL=libsql://tu-db.turso.io
 TURSO_TOKEN=tu-token-de-turso
 PORT=3001
+CLOUDINARY_CLOUD_NAME=tu-cloud-name
+CLOUDINARY_API_KEY=tu-api-key
+CLOUDINARY_API_SECRET=tu-api-secret
+CLOUDINARY_UPLOAD_FOLDER=respell
 VITE_API_URL=https://respellapp.onrender.com
 ```
 
@@ -99,6 +103,7 @@ El sistema ya persiste en Turso:
 - `users` para los administradores
 - `sessions` para las sesiones autenticadas por cookie HttpOnly
 - `course_categories`, `courses`, `course_cohorts` y `enrollment_requests` para academia y publicación de cursos
+- `site_settings`, `homepage_hero`, `homepage_services`, `homepage_testimonials`, `homepage_metrics` y `homepage_feature_blocks` para contenido dinámico de la landing
 
 Las tablas base históricas se crean automáticamente al iniciar el servidor si todavía no existen, pero para el modelo completo de cursos la fuente de verdad ya quedó en las migraciones.
 
@@ -106,12 +111,16 @@ Las tablas base históricas se crean automáticamente al iniciar el servidor si 
 
 Pública:
 
+- `GET /api/public/landing`
 - `GET /api/courses`
 - `GET /api/courses/:slug`
 - `POST /api/courses/:slug/enroll`
 
 Administrativa:
 
+- `GET /api/admin/landing-content`
+- `PUT /api/admin/landing-content`
+- `POST /api/admin/uploads/image`
 - `GET /api/admin/course-categories`
 - `POST /api/admin/course-categories`
 - `GET /api/admin/courses`
@@ -137,6 +146,10 @@ Variables de entorno requeridas en Render:
 
 - `TURSO_URL`
 - `TURSO_TOKEN`
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+- `CLOUDINARY_UPLOAD_FOLDER`
 
 Pasos:
 
@@ -144,7 +157,7 @@ Pasos:
 2. En Render crea `New > Blueprint` o `New > Web Service`.
 3. Si usas Blueprint, Render leerá `render.yaml`.
 4. Si usas Web Service manual, coloca los comandos indicados arriba.
-5. Agrega `TURSO_URL` y `TURSO_TOKEN` en `Environment`.
+5. Agrega todas las variables de Turso y Cloudinary en `Environment`.
 6. Despliega y prueba `https://tu-servicio.onrender.com/api/health`.
 
 Después de publicar el backend, el frontend en producción debe apuntar a la URL pública de Render para las rutas `/api`.

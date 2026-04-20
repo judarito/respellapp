@@ -50,7 +50,6 @@ onMounted(loadCourses)
         <nav class="nav-menu" aria-label="Navegación principal">
           <RouterLink to="/">Inicio</RouterLink>
           <RouterLink to="/cursos">Cursos</RouterLink>
-          <RouterLink to="/login">Login</RouterLink>
           <RouterLink to="/admin">Admin</RouterLink>
         </nav>
 

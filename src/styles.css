@@ -208,7 +208,7 @@ select {
   inset: 0;
   background:
     linear-gradient(90deg, rgba(6, 12, 22, 0.94) 0%, rgba(7, 13, 24, 0.82) 36%, rgba(8, 14, 24, 0.28) 64%, rgba(8, 14, 24, 0.12) 100%),
-    url("/hero-rescate.png") center right / cover no-repeat;
+    var(--hero-image, url("/hero-rescate.png")) center right / cover no-repeat;
   z-index: -2;
 }
 
@@ -1415,6 +1415,47 @@ select {
 
 .admin-form-card {
   padding: 24px;
+}
+
+.admin-form-sections,
+.admin-repeat-list {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-repeat-card {
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(16, 24, 40, 0.03);
+  border: 1px solid rgba(16, 24, 40, 0.06);
+}
+
+.admin-repeat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.admin-upload-row {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.admin-upload-button {
+  position: relative;
+  overflow: hidden;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.admin-upload-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .admin-form-grid {

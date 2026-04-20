@@ -7,6 +7,7 @@ Estas migraciones existen para llevar trazabilidad del modelo de datos del proye
 1. `001_base_auth_and_contacts.sql`
 2. `002_courses_and_enrollments.sql`
 3. `003_public_course_views.sql`
+4. `004_landing_content.sql`
 
 ## Convención
 

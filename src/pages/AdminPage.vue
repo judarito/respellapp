@@ -4,6 +4,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import AdminContactsModule from '../components/admin/AdminContactsModule.vue'
 import AdminCoursesModule from '../components/admin/AdminCoursesModule.vue'
 import AdminEnrollmentsModule from '../components/admin/AdminEnrollmentsModule.vue'
+import AdminLandingModule from '../components/admin/AdminLandingModule.vue'
 import AdminLayout from '../components/admin/AdminLayout.vue'
 import AdminModulePlaceholder from '../components/admin/AdminModulePlaceholder.vue'
 import { apiRequest } from '../lib/api'
@@ -12,6 +13,14 @@ import { useAuth } from '../composables/useAuth'
 const router = useRouter()
 
 const adminModules = [
+  {
+    id: 'landing',
+    tag: 'LP',
+    label: 'Landing',
+    description: 'Hero y secciones',
+    longDescription:
+      'Administración del contenido comercial del sitio público: hero, contacto, servicios, métricas, testimonios y bloques de valor.',
+  },
   {
     id: 'contacts',
     tag: 'LD',
@@ -54,7 +63,7 @@ const adminModules = [
   },
 ]
 
-const activeAdminModule = ref('courses')
+const activeAdminModule = ref('landing')
 const isLeadsLoading = ref(false)
 const hasLoadedLeads = ref(false)
 const leads = ref([])
@@ -187,6 +196,8 @@ watch(activeAdminModule, async (moduleId) => {
             @update:search="leadsSearch = $event"
             @select-lead="selectedLeadId = $event"
           />
+
+          <AdminLandingModule v-else-if="activeAdminModule === 'landing'" />
 
           <AdminCoursesModule v-else-if="activeAdminModule === 'courses'" />
 

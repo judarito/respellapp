@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import crypto from 'node:crypto'
 import http from 'node:http'
 import { createClient } from '@libsql/client'
 import {
@@ -17,6 +18,10 @@ import {
 const port = Number(process.env.PORT || 3001)
 const tursoUrl = process.env.TURSO_URL
 const tursoToken = process.env.TURSO_TOKEN
+const cloudinaryCloudName = process.env.CLOUDINARY_CLOUD_NAME
+const cloudinaryApiKey = process.env.CLOUDINARY_API_KEY
+const cloudinaryApiSecret = process.env.CLOUDINARY_API_SECRET
+const cloudinaryUploadFolder = process.env.CLOUDINARY_UPLOAD_FOLDER || 'respell'
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const allowedCourseModalities = new Set(['virtual', 'presential', 'mixed'])
 const allowedCourseStatuses = new Set(['draft', 'published', 'archived'])
@@ -28,6 +33,7 @@ const allowedEnrollmentStatuses = new Set([
   'cancelled',
   'rejected',
 ])
+const maxJsonBodySize = 20_000_000
 
 if (!tursoUrl || !tursoToken) {
   throw new Error('Missing TURSO_URL or TURSO_TOKEN in environment variables.')
@@ -168,6 +174,96 @@ async function ensureSchema() {
       CHECK (status IN ('pending', 'confirmed', 'waitlist', 'cancelled', 'rejected'))
     )
   `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS site_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      company_name TEXT NOT NULL DEFAULT 'Respell',
+      legal_name TEXT NOT NULL DEFAULT 'Rescate - Rapelling S.A.S',
+      tagline TEXT,
+      primary_email TEXT,
+      secondary_email TEXT,
+      primary_phone TEXT,
+      secondary_phone TEXT,
+      whatsapp_number TEXT,
+      address TEXT,
+      footer_text TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS homepage_hero (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      eyebrow TEXT,
+      title TEXT NOT NULL,
+      subtitle TEXT,
+      primary_cta_label TEXT,
+      primary_cta_url TEXT,
+      secondary_cta_label TEXT,
+      secondary_cta_url TEXT,
+      chip_top TEXT,
+      chip_bottom TEXT,
+      background_image_url TEXT,
+      is_published INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS homepage_services (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT,
+      icon TEXT,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS homepage_testimonials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      company_name TEXT NOT NULL,
+      quote TEXT NOT NULL,
+      author_name TEXT,
+      rating INTEGER NOT NULL DEFAULT 5,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS homepage_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      value TEXT NOT NULL,
+      label TEXT NOT NULL,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS homepage_feature_blocks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eyebrow TEXT,
+      title TEXT NOT NULL,
+      text TEXT,
+      bullets_text TEXT,
+      display_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await seedLandingDefaults()
 }
 
 function sendJson(req, res, statusCode, payload, extraHeaders = {}) {
@@ -193,7 +289,7 @@ function readJsonBody(req) {
     req.on('data', (chunk) => {
       body += chunk
 
-      if (body.length > 1_000_000) {
+      if (body.length > maxJsonBodySize) {
         reject(new Error('Payload too large'))
         req.destroy()
       }
@@ -284,6 +380,266 @@ function formatCurrencyParts(priceCents, currency = 'COP') {
   }).format(Number(priceCents) / 100)
 }
 
+function getDefaultLandingContent() {
+  return {
+    settings: {
+      companyName: 'Respell',
+      legalName: 'Rescate - Rapelling S.A.S',
+      tagline: 'Liderazgo operativo en rescate industrial y trabajo en altura',
+      primaryEmail: 'respellcompany@gmail.com',
+      secondaryEmail: 'diroperativorespell@gmail.com',
+      primaryPhone: '318 0349298',
+      secondaryPhone: '310 8110995',
+      whatsappNumber: '318 0349298',
+      address: '',
+      footerText: 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.',
+    },
+    hero: {
+      eyebrow: 'Rescate industrial y trabajo en altura',
+      title: 'Líderes en rescate industrial y trabajo en altura',
+      subtitle:
+        'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.',
+      primaryCtaLabel: 'Ver cursos',
+      primaryCtaUrl: '/cursos',
+      secondaryCtaLabel: 'Ver plataforma',
+      secondaryCtaUrl: '#plataforma',
+      chipTop: 'Certificación y entrenamiento operativo',
+      chipBottom: 'Listo para conectar CRM, cursos y ventas',
+      backgroundImageUrl: '/hero-rescate.png',
+      isPublished: true,
+    },
+    services: [
+      {
+        title: 'Capacitación en alturas',
+        description:
+          'Programas certificados para trabajo seguro, rescate vertical y maniobras especializadas.',
+        icon: 'A',
+        displayOrder: 1,
+        isActive: true,
+      },
+      {
+        title: 'Espacios confinados',
+        description:
+          'Protocolos, evaluación de riesgos y entrenamiento operativo para entornos críticos.',
+        icon: 'E',
+        displayOrder: 2,
+        isActive: true,
+      },
+      {
+        title: 'Brigadas de emergencia',
+        description:
+          'Formación táctica para respuesta rápida, mando de incidentes y evacuación.',
+        icon: 'B',
+        displayOrder: 3,
+        isActive: true,
+      },
+      {
+        title: 'Venta y alquiler',
+        description:
+          'Equipos, líneas de vida, kits de rescate y elementos de protección para cada operación.',
+        icon: 'V',
+        displayOrder: 4,
+        isActive: true,
+      },
+    ],
+    testimonials: [
+      {
+        companyName: 'TransQuim',
+        quote: 'La mejor capacitación en rescate industrial que hemos recibido. Totalmente recomendados.',
+        authorName: '',
+        rating: 5,
+        displayOrder: 1,
+        isActive: true,
+      },
+      {
+        companyName: 'TGreen',
+        quote: 'Profesionales, puntuales y con un equipo de primera calidad.',
+        authorName: '',
+        rating: 5,
+        displayOrder: 2,
+        isActive: true,
+      },
+      {
+        companyName: 'DeMA',
+        quote: 'Su brigada de emergencia nos salvó en una situación crítica.',
+        authorName: '',
+        rating: 5,
+        displayOrder: 3,
+        isActive: true,
+      },
+    ],
+    metrics: [
+      { value: '+120', label: 'brigadistas capacitados', displayOrder: 1, isActive: true },
+      { value: '24/7', label: 'enfoque en respuesta', displayOrder: 2, isActive: true },
+      { value: '100%', label: 'alineado a operación industrial', displayOrder: 3, isActive: true },
+    ],
+    featureBlocks: [
+      {
+        eyebrow: 'Gestión académica',
+        title: 'Publicación de cursos',
+        text: 'Crea fichas, temarios, instructores, fechas y cupos desde un solo panel.',
+        bulletsText: 'Borradores y publicación\nCatálogo público\nControl de disponibilidad',
+        displayOrder: 1,
+        isActive: true,
+      },
+      {
+        eyebrow: 'Operación comercial',
+        title: 'Ventas online',
+        text: 'Base pensada para conectar checkout, órdenes y pasarela. Dejé el bloque listo para integrar Ofirone.',
+        bulletsText: 'Inscripción por curso\nÓrdenes y estados\nIntegración futura con pagos',
+        displayOrder: 2,
+        isActive: true,
+      },
+      {
+        eyebrow: 'Backoffice',
+        title: 'Seguimiento y leads',
+        text: 'Centraliza solicitudes, formularios, empresas interesadas y seguimiento comercial.',
+        bulletsText: 'Contactos y cotizaciones\nEmbudo comercial\nPanel para asesores',
+        displayOrder: 3,
+        isActive: true,
+      },
+    ],
+  }
+}
+
+async function seedLandingDefaults() {
+  const defaults = getDefaultLandingContent()
+
+  await db.execute({
+    sql: `
+      INSERT OR IGNORE INTO site_settings (
+        id,
+        company_name,
+        legal_name,
+        tagline,
+        primary_email,
+        secondary_email,
+        primary_phone,
+        secondary_phone,
+        whatsapp_number,
+        address,
+        footer_text
+      )
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    args: [
+      defaults.settings.companyName,
+      defaults.settings.legalName,
+      defaults.settings.tagline,
+      defaults.settings.primaryEmail,
+      defaults.settings.secondaryEmail,
+      defaults.settings.primaryPhone,
+      defaults.settings.secondaryPhone,
+      defaults.settings.whatsappNumber,
+      defaults.settings.address,
+      defaults.settings.footerText,
+    ],
+  })
+
+  await db.execute({
+    sql: `
+      INSERT OR IGNORE INTO homepage_hero (
+        id,
+        eyebrow,
+        title,
+        subtitle,
+        primary_cta_label,
+        primary_cta_url,
+        secondary_cta_label,
+        secondary_cta_url,
+        chip_top,
+        chip_bottom,
+        background_image_url,
+        is_published
+      )
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    args: [
+      defaults.hero.eyebrow,
+      defaults.hero.title,
+      defaults.hero.subtitle,
+      defaults.hero.primaryCtaLabel,
+      defaults.hero.primaryCtaUrl,
+      defaults.hero.secondaryCtaLabel,
+      defaults.hero.secondaryCtaUrl,
+      defaults.hero.chipTop,
+      defaults.hero.chipBottom,
+      defaults.hero.backgroundImageUrl,
+      defaults.hero.isPublished ? 1 : 0,
+    ],
+  })
+
+  const servicesCount = await db.execute('SELECT COUNT(*) AS total FROM homepage_services')
+  if (Number(servicesCount.rows[0]?.total || 0) === 0) {
+    await db.batch(
+      defaults.services.map((item) => ({
+        sql: `
+          INSERT INTO homepage_services (title, description, icon, display_order, is_active)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+        args: [item.title, item.description, item.icon, item.displayOrder, item.isActive ? 1 : 0],
+      })),
+      'write',
+    )
+  }
+
+  const testimonialsCount = await db.execute('SELECT COUNT(*) AS total FROM homepage_testimonials')
+  if (Number(testimonialsCount.rows[0]?.total || 0) === 0) {
+    await db.batch(
+      defaults.testimonials.map((item) => ({
+        sql: `
+          INSERT INTO homepage_testimonials (company_name, quote, author_name, rating, display_order, is_active)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          item.companyName,
+          item.quote,
+          item.authorName,
+          item.rating,
+          item.displayOrder,
+          item.isActive ? 1 : 0,
+        ],
+      })),
+      'write',
+    )
+  }
+
+  const metricsCount = await db.execute('SELECT COUNT(*) AS total FROM homepage_metrics')
+  if (Number(metricsCount.rows[0]?.total || 0) === 0) {
+    await db.batch(
+      defaults.metrics.map((item) => ({
+        sql: `
+          INSERT INTO homepage_metrics (value, label, display_order, is_active)
+          VALUES (?, ?, ?, ?)
+        `,
+        args: [item.value, item.label, item.displayOrder, item.isActive ? 1 : 0],
+      })),
+      'write',
+    )
+  }
+
+  const blocksCount = await db.execute('SELECT COUNT(*) AS total FROM homepage_feature_blocks')
+  if (Number(blocksCount.rows[0]?.total || 0) === 0) {
+    await db.batch(
+      defaults.featureBlocks.map((item) => ({
+        sql: `
+          INSERT INTO homepage_feature_blocks (eyebrow, title, text, bullets_text, display_order, is_active)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        args: [
+          item.eyebrow,
+          item.title,
+          item.text,
+          item.bulletsText,
+          item.displayOrder,
+          item.isActive ? 1 : 0,
+        ],
+      })),
+      'write',
+    )
+  }
+}
+
 function mapCourseSummary(row) {
   return {
     id: row.id,
@@ -354,6 +710,416 @@ function mapEnrollmentRow(row) {
     reviewedByUserId: row.reviewed_by_user_id,
     reviewedByName: row.reviewed_by_name,
     notes: row.notes,
+  }
+}
+
+function toBooleanFlag(value, fallback = true) {
+  if (value === undefined || value === null || value === '') {
+    return fallback
+  }
+
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return value === 1
+  }
+
+  const normalizedValue = String(value).trim().toLowerCase()
+  return ['1', 'true', 'yes', 'on'].includes(normalizedValue)
+}
+
+function normalizeLandingList(items, mapper) {
+  return Array.isArray(items) ? items.map(mapper) : []
+}
+
+function normalizeLandingContent(payload) {
+  const defaults = getDefaultLandingContent()
+  const settingsPayload = payload?.settings || {}
+  const heroPayload = payload?.hero || {}
+
+  return {
+    settings: {
+      companyName: toTrimmedString(settingsPayload.companyName || defaults.settings.companyName),
+      legalName: toTrimmedString(settingsPayload.legalName || defaults.settings.legalName),
+      tagline: toNullableString(settingsPayload.tagline ?? defaults.settings.tagline),
+      primaryEmail: toNullableString(settingsPayload.primaryEmail ?? defaults.settings.primaryEmail),
+      secondaryEmail: toNullableString(settingsPayload.secondaryEmail ?? defaults.settings.secondaryEmail),
+      primaryPhone: toNullableString(settingsPayload.primaryPhone ?? defaults.settings.primaryPhone),
+      secondaryPhone: toNullableString(settingsPayload.secondaryPhone ?? defaults.settings.secondaryPhone),
+      whatsappNumber: toNullableString(settingsPayload.whatsappNumber ?? defaults.settings.whatsappNumber),
+      address: toNullableString(settingsPayload.address ?? defaults.settings.address),
+      footerText: toNullableString(settingsPayload.footerText ?? defaults.settings.footerText),
+    },
+    hero: {
+      eyebrow: toNullableString(heroPayload.eyebrow ?? defaults.hero.eyebrow),
+      title: toTrimmedString(heroPayload.title || defaults.hero.title),
+      subtitle: toNullableString(heroPayload.subtitle ?? defaults.hero.subtitle),
+      primaryCtaLabel: toNullableString(heroPayload.primaryCtaLabel ?? defaults.hero.primaryCtaLabel),
+      primaryCtaUrl: toNullableString(heroPayload.primaryCtaUrl ?? defaults.hero.primaryCtaUrl),
+      secondaryCtaLabel: toNullableString(heroPayload.secondaryCtaLabel ?? defaults.hero.secondaryCtaLabel),
+      secondaryCtaUrl: toNullableString(heroPayload.secondaryCtaUrl ?? defaults.hero.secondaryCtaUrl),
+      chipTop: toNullableString(heroPayload.chipTop ?? defaults.hero.chipTop),
+      chipBottom: toNullableString(heroPayload.chipBottom ?? defaults.hero.chipBottom),
+      backgroundImageUrl: toNullableString(
+        heroPayload.backgroundImageUrl ?? defaults.hero.backgroundImageUrl,
+      ),
+      isPublished: toBooleanFlag(heroPayload.isPublished, true),
+    },
+    services: normalizeLandingList(payload?.services, (item, index) => ({
+      title: toTrimmedString(item?.title),
+      description: toNullableString(item?.description),
+      icon: toNullableString(item?.icon) || 'S',
+      displayOrder: toNonNegativeInteger(item?.displayOrder, index + 1),
+      isActive: toBooleanFlag(item?.isActive, true),
+    })).filter((item) => item.title),
+    testimonials: normalizeLandingList(payload?.testimonials, (item, index) => ({
+      companyName: toTrimmedString(item?.companyName),
+      quote: toTrimmedString(item?.quote),
+      authorName: toNullableString(item?.authorName),
+      rating: Math.min(5, Math.max(1, toNonNegativeInteger(item?.rating, 5) || 5)),
+      displayOrder: toNonNegativeInteger(item?.displayOrder, index + 1),
+      isActive: toBooleanFlag(item?.isActive, true),
+    })).filter((item) => item.companyName && item.quote),
+    metrics: normalizeLandingList(payload?.metrics, (item, index) => ({
+      value: toTrimmedString(item?.value),
+      label: toTrimmedString(item?.label),
+      displayOrder: toNonNegativeInteger(item?.displayOrder, index + 1),
+      isActive: toBooleanFlag(item?.isActive, true),
+    })).filter((item) => item.value && item.label),
+    featureBlocks: normalizeLandingList(payload?.featureBlocks, (item, index) => ({
+      eyebrow: toNullableString(item?.eyebrow),
+      title: toTrimmedString(item?.title),
+      text: toNullableString(item?.text),
+      bulletsText: toNullableString(item?.bulletsText),
+      displayOrder: toNonNegativeInteger(item?.displayOrder, index + 1),
+      isActive: toBooleanFlag(item?.isActive, true),
+    })).filter((item) => item.title),
+  }
+}
+
+function splitBullets(value) {
+  return String(value || '')
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+async function loadLandingContent() {
+  const [settingsResult, heroResult, servicesResult, testimonialsResult, metricsResult, blocksResult] =
+    await Promise.all([
+      db.execute('SELECT * FROM site_settings WHERE id = 1 LIMIT 1'),
+      db.execute('SELECT * FROM homepage_hero WHERE id = 1 LIMIT 1'),
+      db.execute('SELECT * FROM homepage_services ORDER BY display_order ASC, id ASC'),
+      db.execute('SELECT * FROM homepage_testimonials ORDER BY display_order ASC, id ASC'),
+      db.execute('SELECT * FROM homepage_metrics ORDER BY display_order ASC, id ASC'),
+      db.execute('SELECT * FROM homepage_feature_blocks ORDER BY display_order ASC, id ASC'),
+    ])
+
+  const settingsRow = settingsResult.rows[0] || {}
+  const heroRow = heroResult.rows[0] || {}
+
+  return {
+    settings: {
+      companyName: settingsRow.company_name || 'Respell',
+      legalName: settingsRow.legal_name || 'Rescate - Rapelling S.A.S',
+      tagline: settingsRow.tagline || '',
+      primaryEmail: settingsRow.primary_email || '',
+      secondaryEmail: settingsRow.secondary_email || '',
+      primaryPhone: settingsRow.primary_phone || '',
+      secondaryPhone: settingsRow.secondary_phone || '',
+      whatsappNumber: settingsRow.whatsapp_number || '',
+      address: settingsRow.address || '',
+      footerText: settingsRow.footer_text || '',
+    },
+    hero: {
+      eyebrow: heroRow.eyebrow || '',
+      title: heroRow.title || '',
+      subtitle: heroRow.subtitle || '',
+      primaryCtaLabel: heroRow.primary_cta_label || '',
+      primaryCtaUrl: heroRow.primary_cta_url || '',
+      secondaryCtaLabel: heroRow.secondary_cta_label || '',
+      secondaryCtaUrl: heroRow.secondary_cta_url || '',
+      chipTop: heroRow.chip_top || '',
+      chipBottom: heroRow.chip_bottom || '',
+      backgroundImageUrl: heroRow.background_image_url || '',
+      isPublished: Number(heroRow.is_published || 0) === 1,
+    },
+    services: servicesResult.rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      icon: row.icon,
+      displayOrder: row.display_order,
+      isActive: Number(row.is_active || 0) === 1,
+    })),
+    testimonials: testimonialsResult.rows.map((row) => ({
+      id: row.id,
+      companyName: row.company_name,
+      quote: row.quote,
+      authorName: row.author_name,
+      rating: row.rating,
+      displayOrder: row.display_order,
+      isActive: Number(row.is_active || 0) === 1,
+    })),
+    metrics: metricsResult.rows.map((row) => ({
+      id: row.id,
+      value: row.value,
+      label: row.label,
+      displayOrder: row.display_order,
+      isActive: Number(row.is_active || 0) === 1,
+    })),
+    featureBlocks: blocksResult.rows.map((row) => ({
+      id: row.id,
+      eyebrow: row.eyebrow,
+      title: row.title,
+      text: row.text,
+      bulletsText: row.bullets_text || '',
+      bullets: splitBullets(row.bullets_text),
+      displayOrder: row.display_order,
+      isActive: Number(row.is_active || 0) === 1,
+    })),
+  }
+}
+
+async function loadFeaturedCourses(limit = 3) {
+  const result = await db.execute({
+    sql: `
+      SELECT
+        c.id,
+        c.category_id,
+        c.title,
+        c.slug,
+        c.short_description,
+        c.description,
+        c.modality,
+        c.level,
+        c.duration_hours,
+        c.cover_image_url,
+        c.price_cents,
+        c.currency,
+        c.publication_status,
+        c.published_at,
+        cc.name AS category_name,
+        COUNT(cohort.id) AS cohort_count,
+        SUM(CASE WHEN cohort.status = 'published' THEN 1 ELSE 0 END) AS published_cohort_count,
+        MIN(CASE WHEN cohort.status = 'published' THEN cohort.start_date END) AS next_start_date
+      FROM courses c
+      LEFT JOIN course_categories cc ON cc.id = c.category_id
+      LEFT JOIN course_cohorts cohort ON cohort.course_id = c.id
+      WHERE c.publication_status = 'published'
+      GROUP BY
+        c.id,
+        c.category_id,
+        c.title,
+        c.slug,
+        c.short_description,
+        c.description,
+        c.modality,
+        c.level,
+        c.duration_hours,
+        c.cover_image_url,
+        c.price_cents,
+        c.currency,
+        c.publication_status,
+        c.published_at,
+        cc.name
+      ORDER BY datetime(COALESCE(c.published_at, c.created_at)) DESC, c.id DESC
+      LIMIT ?
+    `,
+    args: [limit],
+  })
+
+  return result.rows.map(mapCourseSummary)
+}
+
+async function saveLandingContent(payload) {
+  const normalizedContent = normalizeLandingContent(payload)
+
+  await db.batch(
+    [
+      {
+        sql: `
+          INSERT INTO site_settings (
+            id,
+            company_name,
+            legal_name,
+            tagline,
+            primary_email,
+            secondary_email,
+            primary_phone,
+            secondary_phone,
+            whatsapp_number,
+            address,
+            footer_text,
+            updated_at
+          )
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(id) DO UPDATE SET
+            company_name = excluded.company_name,
+            legal_name = excluded.legal_name,
+            tagline = excluded.tagline,
+            primary_email = excluded.primary_email,
+            secondary_email = excluded.secondary_email,
+            primary_phone = excluded.primary_phone,
+            secondary_phone = excluded.secondary_phone,
+            whatsapp_number = excluded.whatsapp_number,
+            address = excluded.address,
+            footer_text = excluded.footer_text,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        args: [
+          normalizedContent.settings.companyName,
+          normalizedContent.settings.legalName,
+          normalizedContent.settings.tagline,
+          normalizedContent.settings.primaryEmail,
+          normalizedContent.settings.secondaryEmail,
+          normalizedContent.settings.primaryPhone,
+          normalizedContent.settings.secondaryPhone,
+          normalizedContent.settings.whatsappNumber,
+          normalizedContent.settings.address,
+          normalizedContent.settings.footerText,
+        ],
+      },
+      {
+        sql: `
+          INSERT INTO homepage_hero (
+            id,
+            eyebrow,
+            title,
+            subtitle,
+            primary_cta_label,
+            primary_cta_url,
+            secondary_cta_label,
+            secondary_cta_url,
+            chip_top,
+            chip_bottom,
+            background_image_url,
+            is_published,
+            updated_at
+          )
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(id) DO UPDATE SET
+            eyebrow = excluded.eyebrow,
+            title = excluded.title,
+            subtitle = excluded.subtitle,
+            primary_cta_label = excluded.primary_cta_label,
+            primary_cta_url = excluded.primary_cta_url,
+            secondary_cta_label = excluded.secondary_cta_label,
+            secondary_cta_url = excluded.secondary_cta_url,
+            chip_top = excluded.chip_top,
+            chip_bottom = excluded.chip_bottom,
+            background_image_url = excluded.background_image_url,
+            is_published = excluded.is_published,
+            updated_at = CURRENT_TIMESTAMP
+        `,
+        args: [
+          normalizedContent.hero.eyebrow,
+          normalizedContent.hero.title,
+          normalizedContent.hero.subtitle,
+          normalizedContent.hero.primaryCtaLabel,
+          normalizedContent.hero.primaryCtaUrl,
+          normalizedContent.hero.secondaryCtaLabel,
+          normalizedContent.hero.secondaryCtaUrl,
+          normalizedContent.hero.chipTop,
+          normalizedContent.hero.chipBottom,
+          normalizedContent.hero.backgroundImageUrl,
+          normalizedContent.hero.isPublished ? 1 : 0,
+        ],
+      },
+      { sql: 'DELETE FROM homepage_services', args: [] },
+      ...normalizedContent.services.map((item) => ({
+        sql: `
+          INSERT INTO homepage_services (title, description, icon, display_order, is_active, updated_at)
+          VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `,
+        args: [item.title, item.description, item.icon, item.displayOrder, item.isActive ? 1 : 0],
+      })),
+      { sql: 'DELETE FROM homepage_testimonials', args: [] },
+      ...normalizedContent.testimonials.map((item) => ({
+        sql: `
+          INSERT INTO homepage_testimonials (company_name, quote, author_name, rating, display_order, is_active, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `,
+        args: [
+          item.companyName,
+          item.quote,
+          item.authorName,
+          item.rating,
+          item.displayOrder,
+          item.isActive ? 1 : 0,
+        ],
+      })),
+      { sql: 'DELETE FROM homepage_metrics', args: [] },
+      ...normalizedContent.metrics.map((item) => ({
+        sql: `
+          INSERT INTO homepage_metrics (value, label, display_order, is_active, updated_at)
+          VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `,
+        args: [item.value, item.label, item.displayOrder, item.isActive ? 1 : 0],
+      })),
+      { sql: 'DELETE FROM homepage_feature_blocks', args: [] },
+      ...normalizedContent.featureBlocks.map((item) => ({
+        sql: `
+          INSERT INTO homepage_feature_blocks (eyebrow, title, text, bullets_text, display_order, is_active, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `,
+        args: [
+          item.eyebrow,
+          item.title,
+          item.text,
+          item.bulletsText,
+          item.displayOrder,
+          item.isActive ? 1 : 0,
+        ],
+      })),
+    ],
+    'write',
+  )
+
+  return loadLandingContent()
+}
+
+async function uploadImageToCloudinary(fileDataUrl, fileName, folder) {
+  if (!cloudinaryCloudName || !cloudinaryApiKey || !cloudinaryApiSecret) {
+    throw new Error('Cloudinary environment variables are missing on the server.')
+  }
+
+  const timestamp = Math.floor(Date.now() / 1000)
+  const publicId = slugify(fileName || `respell-${timestamp}`) || `respell-${timestamp}`
+  const targetFolder = folder || cloudinaryUploadFolder
+  const signatureBase = `folder=${targetFolder}&public_id=${publicId}&timestamp=${timestamp}${cloudinaryApiSecret}`
+  const signature = crypto.createHash('sha1').update(signatureBase).digest('hex')
+
+  const formData = new FormData()
+  formData.append('file', fileDataUrl)
+  formData.append('api_key', cloudinaryApiKey)
+  formData.append('timestamp', String(timestamp))
+  formData.append('signature', signature)
+  formData.append('folder', targetFolder)
+  formData.append('public_id', publicId)
+
+  const response = await fetch(
+    `https://api.cloudinary.com/v1_1/${cloudinaryCloudName}/image/upload`,
+    {
+      method: 'POST',
+      body: formData,
+    },
+  )
+
+  const payload = await response.json()
+
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Cloudinary upload failed.')
+  }
+
+  return {
+    publicId: payload.public_id,
+    secureUrl: payload.secure_url,
+    width: payload.width,
+    height: payload.height,
+    format: payload.format,
   }
 }
 
@@ -934,6 +1700,113 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 500, {
         ok: false,
         message: 'No fue posible guardar la solicitud en este momento.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/public/landing') {
+    try {
+      const [landingContent, featuredCourses] = await Promise.all([
+        loadLandingContent(),
+        loadFeaturedCourses(3),
+      ])
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        ...landingContent,
+        featuredCourses,
+      })
+    } catch (error) {
+      console.error('Error loading public landing content:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar el contenido público de la landing.',
+      })
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/landing-content') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const landingContent = await loadLandingContent()
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        user: session.user,
+        ...landingContent,
+      })
+    } catch (error) {
+      console.error('Error loading admin landing content:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible cargar la configuración de la landing.',
+      })
+    }
+  }
+
+  if (req.method === 'PUT' && url.pathname === '/api/admin/landing-content') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const payload = await readJsonBody(req)
+      const landingContent = await saveLandingContent(payload)
+
+      return sendJson(req, res, 200, {
+        ok: true,
+        message: 'Contenido de la landing actualizado correctamente.',
+        user: session.user,
+        ...landingContent,
+      })
+    } catch (error) {
+      console.error('Error updating landing content:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: 'No fue posible actualizar el contenido de la landing.',
+      })
+    }
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/uploads/image') {
+    try {
+      const session = await requireSession(req, res)
+
+      if (!session) {
+        return
+      }
+
+      const payload = await readJsonBody(req)
+      const fileDataUrl = toTrimmedString(payload.fileDataUrl)
+      const fileName = toTrimmedString(payload.fileName || 'respell-image')
+      const folder = toTrimmedString(payload.folder || cloudinaryUploadFolder)
+
+      if (!fileDataUrl.startsWith('data:image/')) {
+        return sendJson(req, res, 400, {
+          ok: false,
+          message: 'Debes enviar una imagen válida codificada como data URL.',
+        })
+      }
+
+      const uploadedFile = await uploadImageToCloudinary(fileDataUrl, fileName, folder)
+
+      return sendJson(req, res, 201, {
+        ok: true,
+        message: 'Imagen subida correctamente.',
+        item: uploadedFile,
+      })
+    } catch (error) {
+      console.error('Error uploading image to Cloudinary:', error)
+      return sendJson(req, res, 500, {
+        ok: false,
+        message: error.message || 'No fue posible subir la imagen a Cloudinary.',
       })
     }
   }

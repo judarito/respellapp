@@ -1,75 +1,10 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiRequest, buildApiUrl, readResponsePayload } from '../lib/api'
 
-const services = [
-  {
-    title: 'Capacitación en alturas',
-    text: 'Programas certificados para trabajo seguro, rescate vertical y maniobras especializadas.',
-    icon: 'A',
-  },
-  {
-    title: 'Espacios confinados',
-    text: 'Protocolos, evaluación de riesgos y entrenamiento operativo para entornos críticos.',
-    icon: 'E',
-  },
-  {
-    title: 'Brigadas de emergencia',
-    text: 'Formación táctica para respuesta rápida, mando de incidentes y evacuación.',
-    icon: 'B',
-  },
-  {
-    title: 'Venta y alquiler',
-    text: 'Equipos, líneas de vida, kits de rescate y elementos de protección para cada operación.',
-    icon: 'V',
-  },
-]
-
-const testimonials = [
-  {
-    name: 'TransQuim',
-    quote:
-      'La mejor capacitación en rescate industrial que hemos recibido. Totalmente recomendados.',
-  },
-  {
-    name: 'TGreen',
-    quote: 'Profesionales, puntuales y con un equipo de primera calidad.',
-  },
-  {
-    name: 'DeMA',
-    quote: 'Su brigada de emergencia nos salvó en una situación crítica.',
-  },
-]
-
-const modules = [
-  {
-    eyebrow: 'Gestión académica',
-    title: 'Publicación de cursos',
-    text: 'Crea fichas, temarios, instructores, fechas y cupos desde un solo panel.',
-    points: ['Borradores y publicación', 'Catálogo público', 'Control de disponibilidad'],
-  },
-  {
-    eyebrow: 'Operación comercial',
-    title: 'Ventas online',
-    text: 'Base pensada para conectar checkout, órdenes y pasarela. Dejé el bloque listo para integrar Ofirone.',
-    points: ['Inscripción por curso', 'Órdenes y estados', 'Integración futura con pagos'],
-  },
-  {
-    eyebrow: 'Backoffice',
-    title: 'Seguimiento y leads',
-    text: 'Centraliza solicitudes, formularios, empresas interesadas y seguimiento comercial.',
-    points: ['Contactos y cotizaciones', 'Embudo comercial', 'Panel para asesores'],
-  },
-]
-
-const metrics = [
-  { value: '+120', label: 'brigadistas capacitados' },
-  { value: '24/7', label: 'enfoque en respuesta' },
-  { value: '100%', label: 'alineado a operación industrial' },
-]
-
-const publicCourses = ref([])
+const landingContent = ref(null)
+const isLandingLoading = ref(true)
 
 const contactForm = reactive({
   name: '',
@@ -81,6 +16,22 @@ const submissionMessage = ref('')
 const submissionState = ref('idle')
 const isSubmitting = ref(false)
 
+const settings = computed(() => landingContent.value?.settings || {})
+const hero = computed(() => landingContent.value?.hero || {})
+const services = computed(() => (landingContent.value?.services || []).filter((item) => item.isActive))
+const testimonials = computed(() =>
+  (landingContent.value?.testimonials || []).filter((item) => item.isActive),
+)
+const metrics = computed(() => (landingContent.value?.metrics || []).filter((item) => item.isActive))
+const featureBlocks = computed(() =>
+  (landingContent.value?.featureBlocks || []).filter((item) => item.isActive),
+)
+const publicCourses = computed(() => landingContent.value?.featuredCourses || [])
+
+const heroPanelStyle = computed(() => ({
+  '--hero-image': `url('${hero.value.backgroundImageUrl || '/hero-rescate.png'}')`,
+}))
+
 function formatDate(value) {
   if (!value) {
     return 'Cohorte por confirmar'
@@ -91,12 +42,20 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
-async function loadFeaturedCourses() {
+function normalizeCtaUrl(value) {
+  return value || '#contacto'
+}
+
+async function loadLanding() {
+  isLandingLoading.value = true
+
   try {
-    const result = await apiRequest('/api/courses?limit=3')
-    publicCourses.value = result.items || []
+    const result = await apiRequest('/api/public/landing')
+    landingContent.value = result
   } catch {
-    publicCourses.value = []
+    landingContent.value = null
+  } finally {
+    isLandingLoading.value = false
   }
 }
 
@@ -143,7 +102,7 @@ async function handleSubmit() {
   }
 }
 
-onMounted(loadFeaturedCourses)
+onMounted(loadLanding)
 </script>
 
 <template>
@@ -163,25 +122,30 @@ onMounted(loadFeaturedCourses)
           <a href="#servicios">Servicios</a>
           <a href="#cursos">Cursos</a>
           <a href="#blog">Blog</a>
-          <RouterLink to="/login">Login</RouterLink>
           <RouterLink to="/admin">Admin</RouterLink>
         </nav>
 
         <a class="button button-solid topbar-cta" href="#contacto">Inscríbete</a>
       </header>
 
-      <section id="inicio" class="hero-panel">
+      <section id="inicio" class="hero-panel" :style="heroPanelStyle">
         <div class="hero-copy">
-          <span class="eyebrow">Rescate industrial y trabajo en altura</span>
-          <h1>Líderes en rescate industrial y trabajo en altura</h1>
+          <span class="eyebrow">{{ hero.eyebrow || 'Rescate industrial y trabajo en altura' }}</span>
+          <h1>{{ hero.title || 'Líderes en rescate industrial y trabajo en altura' }}</h1>
           <p>
-            Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la
-            operación comercial online desde una misma experiencia.
+            {{
+              hero.subtitle ||
+              'Plataforma web para mostrar la autoridad de Respell, publicar cursos y preparar la operación comercial online desde una misma experiencia.'
+            }}
           </p>
 
           <div class="hero-actions">
-            <RouterLink class="button button-solid" to="/cursos">Ver cursos</RouterLink>
-            <a class="button button-ghost" href="#plataforma">Ver plataforma</a>
+            <a class="button button-solid" :href="normalizeCtaUrl(hero.primaryCtaUrl)">
+              {{ hero.primaryCtaLabel || 'Ver cursos' }}
+            </a>
+            <a class="button button-ghost" :href="normalizeCtaUrl(hero.secondaryCtaUrl)">
+              {{ hero.secondaryCtaLabel || 'Ver plataforma' }}
+            </a>
           </div>
 
           <div class="metrics-grid">
@@ -193,8 +157,8 @@ onMounted(loadFeaturedCourses)
         </div>
 
         <div class="hero-visual" aria-hidden="true">
-          <div class="hero-chip chip-top">Certificación y entrenamiento operativo</div>
-          <div class="hero-chip chip-bottom">Listo para conectar CRM, cursos y ventas</div>
+          <div class="hero-chip chip-top">{{ hero.chipTop || 'Certificación y entrenamiento operativo' }}</div>
+          <div class="hero-chip chip-bottom">{{ hero.chipBottom || 'Listo para conectar CRM, cursos y ventas' }}</div>
         </div>
       </section>
 
@@ -208,7 +172,7 @@ onMounted(loadFeaturedCourses)
           <article v-for="service in services" :key="service.title" class="service-card">
             <div class="service-icon">{{ service.icon }}</div>
             <h3>{{ service.title }}</h3>
-            <p>{{ service.text }}</p>
+            <p>{{ service.description }}</p>
           </article>
         </div>
       </section>
@@ -220,10 +184,10 @@ onMounted(loadFeaturedCourses)
         </div>
 
         <div class="testimonials-row">
-          <article v-for="testimonial in testimonials" :key="testimonial.name" class="testimonial-card">
-            <strong>{{ testimonial.name }}</strong>
+          <article v-for="testimonial in testimonials" :key="testimonial.companyName" class="testimonial-card">
+            <strong>{{ testimonial.companyName }}</strong>
             <p>"{{ testimonial.quote }}"</p>
-            <span class="stars">★★★★★</span>
+            <span class="stars">{{ '★'.repeat(testimonial.rating || 5) }}</span>
           </article>
         </div>
       </section>
@@ -234,7 +198,7 @@ onMounted(loadFeaturedCourses)
           <h2>Catálogo público conectado a los cursos publicados</h2>
         </div>
 
-        <div v-if="!publicCourses.length" class="empty-state empty-state-dark">
+        <div v-if="!publicCourses.length && !isLandingLoading" class="empty-state empty-state-dark">
           Aún no hay cursos publicados desde el panel. Cuando publiques el primero, aparecerá aquí.
         </div>
 
@@ -242,9 +206,7 @@ onMounted(loadFeaturedCourses)
           <article v-for="course in publicCourses" :key="course.id" class="course-card">
             <span class="course-type">{{ course.categoryName || 'Curso Respell' }}</span>
             <h3>{{ course.title }}</h3>
-            <p>
-              {{ course.shortDescription || `${course.modality} · ${course.durationHours} horas` }}
-            </p>
+            <p>{{ course.shortDescription || `${course.modality} · ${course.durationHours} horas` }}</p>
             <div class="course-footer">
               <span class="course-status">{{ formatDate(course.nextStartDate) }}</span>
               <RouterLink :to="`/cursos/${course.slug}`">Ver detalle</RouterLink>
@@ -260,12 +222,12 @@ onMounted(loadFeaturedCourses)
         </div>
 
         <div class="modules-grid">
-          <article v-for="module in modules" :key="module.title" class="module-card">
-            <span class="module-eyebrow">{{ module.eyebrow }}</span>
-            <h3>{{ module.title }}</h3>
-            <p>{{ module.text }}</p>
+          <article v-for="block in featureBlocks" :key="block.title" class="module-card">
+            <span class="module-eyebrow">{{ block.eyebrow }}</span>
+            <h3>{{ block.title }}</h3>
+            <p>{{ block.text }}</p>
             <ul>
-              <li v-for="point in module.points" :key="point">{{ point }}</li>
+              <li v-for="point in block.bullets || []" :key="point">{{ point }}</li>
             </ul>
           </article>
         </div>
@@ -274,16 +236,19 @@ onMounted(loadFeaturedCourses)
       <section id="blog" class="contact-section">
         <div class="contact-info">
           <span class="eyebrow">Solicita información</span>
-          <h2>Landing comercial con enfoque en conversión</h2>
+          <h2>{{ settings.tagline || 'Landing comercial con enfoque en conversión' }}</h2>
           <p>
             Dejé esta sección lista para convertirse en formulario conectado, captura de leads y
             seguimiento de oportunidades.
           </p>
 
           <div class="contact-list">
-            <div><span>WhatsApp</span> 318 0349298 · 310 8110995</div>
-            <div><span>Correo</span> respellcompany@gmail.com</div>
-            <div><span>Soporte</span> diroperativorespell@gmail.com</div>
+            <div v-if="settings.whatsappNumber || settings.primaryPhone || settings.secondaryPhone">
+              <span>WhatsApp</span>
+              {{ [settings.whatsappNumber, settings.primaryPhone, settings.secondaryPhone].filter(Boolean).join(' · ') }}
+            </div>
+            <div v-if="settings.primaryEmail"><span>Correo</span> {{ settings.primaryEmail }}</div>
+            <div v-if="settings.secondaryEmail"><span>Soporte</span> {{ settings.secondaryEmail }}</div>
           </div>
         </div>
 
@@ -317,10 +282,10 @@ onMounted(loadFeaturedCourses)
 
       <footer class="footer">
         <div>
-          <strong>Respell</strong>
-          <span>Rescate - Rapelling S.A.S</span>
+          <strong>{{ settings.companyName || 'Respell' }}</strong>
+          <span>{{ settings.legalName || 'Rescate - Rapelling S.A.S' }}</span>
         </div>
-        <p>Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.</p>
+        <p>{{ settings.footerText || 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.' }}</p>
       </footer>
     </main>
   </div>
