@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiRequest, buildApiUrl, readResponsePayload } from '../lib/api'
 
 const landingContent = ref(null)
 const isLandingLoading = ref(true)
+const showScrollTopButton = ref(false)
 
 const contactForm = reactive({
   name: '',
@@ -44,6 +45,17 @@ function formatDate(value) {
 
 function normalizeCtaUrl(value) {
   return value || '#contacto'
+}
+
+function updateScrollTopButtonVisibility() {
+  showScrollTopButton.value = window.scrollY > 420
+}
+
+function scrollToTop() {
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth',
+  })
 }
 
 async function loadLanding() {
@@ -102,7 +114,15 @@ async function handleSubmit() {
   }
 }
 
-onMounted(loadLanding)
+onMounted(() => {
+  loadLanding()
+  updateScrollTopButtonVisibility()
+  window.addEventListener('scroll', updateScrollTopButtonVisibility, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', updateScrollTopButtonVisibility)
+})
 </script>
 
 <template>
@@ -288,5 +308,15 @@ onMounted(loadLanding)
         <p>{{ settings.footerText || 'Prototipo en Vue listo para evolucionar a cursos, CRM y ventas online.' }}</p>
       </footer>
     </main>
+
+    <button
+      v-if="showScrollTopButton"
+      type="button"
+      class="scroll-top-button"
+      aria-label="Volver al inicio"
+      @click="scrollToTop"
+    >
+      ↑
+    </button>
   </div>
 </template>
