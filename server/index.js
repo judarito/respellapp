@@ -2134,6 +2134,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(req, res, 500, {
         ok: false,
         message: 'No fue posible actualizar el contenido de la landing.',
+        detail: error instanceof Error ? error.message : String(error),
       })
     }
   }
