@@ -279,6 +279,41 @@ async function ensureSchema() {
     'contact_title',
     'ALTER TABLE site_settings ADD COLUMN contact_title TEXT',
   )
+  await ensureTableColumn(
+    'site_settings',
+    'primary_email',
+    'ALTER TABLE site_settings ADD COLUMN primary_email TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'secondary_email',
+    'ALTER TABLE site_settings ADD COLUMN secondary_email TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'primary_phone',
+    'ALTER TABLE site_settings ADD COLUMN primary_phone TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'secondary_phone',
+    'ALTER TABLE site_settings ADD COLUMN secondary_phone TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'whatsapp_number',
+    'ALTER TABLE site_settings ADD COLUMN whatsapp_number TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'address',
+    'ALTER TABLE site_settings ADD COLUMN address TEXT',
+  )
+  await ensureTableColumn(
+    'site_settings',
+    'footer_text',
+    'ALTER TABLE site_settings ADD COLUMN footer_text TEXT',
+  )
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS homepage_hero (
@@ -293,10 +328,61 @@ async function ensureSchema() {
       chip_top TEXT,
       chip_bottom TEXT,
       background_image_url TEXT,
+      carousel_images TEXT,
       is_published INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
+  await ensureTableColumn(
+    'homepage_hero',
+    'eyebrow',
+    'ALTER TABLE homepage_hero ADD COLUMN eyebrow TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'subtitle',
+    'ALTER TABLE homepage_hero ADD COLUMN subtitle TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'primary_cta_label',
+    'ALTER TABLE homepage_hero ADD COLUMN primary_cta_label TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'primary_cta_url',
+    'ALTER TABLE homepage_hero ADD COLUMN primary_cta_url TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'secondary_cta_label',
+    'ALTER TABLE homepage_hero ADD COLUMN secondary_cta_label TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'secondary_cta_url',
+    'ALTER TABLE homepage_hero ADD COLUMN secondary_cta_url TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'chip_top',
+    'ALTER TABLE homepage_hero ADD COLUMN chip_top TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'chip_bottom',
+    'ALTER TABLE homepage_hero ADD COLUMN chip_bottom TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'background_image_url',
+    'ALTER TABLE homepage_hero ADD COLUMN background_image_url TEXT',
+  )
+  await ensureTableColumn(
+    'homepage_hero',
+    'carousel_images',
+    'ALTER TABLE homepage_hero ADD COLUMN carousel_images TEXT',
+  )
 
   await db.execute(`
     CREATE TABLE IF NOT EXISTS homepage_services (
@@ -350,6 +436,11 @@ async function ensureSchema() {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `)
+  await ensureTableColumn(
+    'homepage_feature_blocks',
+    'bullets_text',
+    'ALTER TABLE homepage_feature_blocks ADD COLUMN bullets_text TEXT',
+  )
 
   await seedLandingDefaults()
 }
@@ -402,6 +493,35 @@ function toTrimmedString(value) {
 function toNullableString(value) {
   const normalizedValue = toTrimmedString(value)
   return normalizedValue || null
+}
+
+function normalizeLandingImageList(items, fallbackImage = null) {
+  const normalizedItems = (Array.isArray(items) ? items : [])
+    .map((item) => toTrimmedString(item))
+    .filter(Boolean)
+    .slice(0, 5)
+
+  if (normalizedItems.length > 0) {
+    return normalizedItems
+  }
+
+  const normalizedFallback = toTrimmedString(fallbackImage)
+  return normalizedFallback ? [normalizedFallback] : []
+}
+
+function parseStoredJsonArray(value) {
+  const normalizedValue = toTrimmedString(value)
+
+  if (!normalizedValue) {
+    return []
+  }
+
+  try {
+    const parsedValue = JSON.parse(normalizedValue)
+    return Array.isArray(parsedValue) ? parsedValue : []
+  } catch {
+    return []
+  }
 }
 
 function toNonNegativeInteger(value, fallback = 0) {
@@ -504,6 +624,7 @@ function getDefaultLandingContent() {
       chipTop: 'Certificación y entrenamiento operativo',
       chipBottom: 'Listo para conectar CRM, cursos y ventas',
       backgroundImageUrl: '/hero-rescate.png',
+      carouselImages: ['/hero-rescate.png'],
       isPublished: true,
     },
     services: [
@@ -602,6 +723,10 @@ function getDefaultLandingContent() {
 
 async function seedLandingDefaults() {
   const defaults = getDefaultLandingContent()
+  const defaultHeroCarouselImages = normalizeLandingImageList(
+    defaults.hero.carouselImages,
+    defaults.hero.backgroundImageUrl,
+  )
 
   await db.execute({
     sql: `
@@ -668,9 +793,10 @@ async function seedLandingDefaults() {
         chip_top,
         chip_bottom,
         background_image_url,
+        carousel_images,
         is_published
       )
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     args: [
       defaults.hero.eyebrow,
@@ -683,6 +809,7 @@ async function seedLandingDefaults() {
       defaults.hero.chipTop,
       defaults.hero.chipBottom,
       defaults.hero.backgroundImageUrl,
+      JSON.stringify(defaultHeroCarouselImages),
       defaults.hero.isPublished ? 1 : 0,
     ],
   })
@@ -905,6 +1032,10 @@ function normalizeLandingContent(payload) {
   const defaults = getDefaultLandingContent()
   const settingsPayload = payload?.settings || {}
   const heroPayload = payload?.hero || {}
+  const heroCarouselImages = normalizeLandingImageList(
+    heroPayload.carouselImages,
+    heroPayload.backgroundImageUrl ?? defaults.hero.backgroundImageUrl,
+  )
 
   return {
     settings: {
@@ -943,9 +1074,8 @@ function normalizeLandingContent(payload) {
       secondaryCtaUrl: toNullableString(heroPayload.secondaryCtaUrl ?? defaults.hero.secondaryCtaUrl),
       chipTop: toNullableString(heroPayload.chipTop ?? defaults.hero.chipTop),
       chipBottom: toNullableString(heroPayload.chipBottom ?? defaults.hero.chipBottom),
-      backgroundImageUrl: toNullableString(
-        heroPayload.backgroundImageUrl ?? defaults.hero.backgroundImageUrl,
-      ),
+      backgroundImageUrl: toNullableString(heroCarouselImages[0] || defaults.hero.backgroundImageUrl),
+      carouselImages: heroCarouselImages,
       isPublished: toBooleanFlag(heroPayload.isPublished, true),
     },
     services: normalizeLandingList(payload?.services, (item, index) => ({
@@ -988,6 +1118,7 @@ function splitBullets(value) {
 }
 
 async function loadLandingContent() {
+  const defaults = getDefaultLandingContent()
   const [settingsResult, heroResult, servicesResult, testimonialsResult, metricsResult, blocksResult] =
     await Promise.all([
       db.execute('SELECT * FROM site_settings WHERE id = 1 LIMIT 1'),
@@ -1000,6 +1131,10 @@ async function loadLandingContent() {
 
   const settingsRow = settingsResult.rows[0] || {}
   const heroRow = heroResult.rows[0] || {}
+  const heroCarouselImages = normalizeLandingImageList(
+    parseStoredJsonArray(heroRow.carousel_images),
+    heroRow.background_image_url || defaults.hero.backgroundImageUrl,
+  )
 
   return {
     settings: {
@@ -1037,7 +1172,8 @@ async function loadLandingContent() {
       secondaryCtaUrl: heroRow.secondary_cta_url || '',
       chipTop: heroRow.chip_top || '',
       chipBottom: heroRow.chip_bottom || '',
-      backgroundImageUrl: heroRow.background_image_url || '',
+      backgroundImageUrl: heroCarouselImages[0] || heroRow.background_image_url || '',
+      carouselImages: heroCarouselImages,
       isPublished: Number(heroRow.is_published || 0) === 1,
     },
     services: servicesResult.rows.map((row) => ({
@@ -1220,10 +1356,11 @@ async function saveLandingContent(payload) {
             chip_top,
             chip_bottom,
             background_image_url,
+            carousel_images,
             is_published,
             updated_at
           )
-          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           ON CONFLICT(id) DO UPDATE SET
             eyebrow = excluded.eyebrow,
             title = excluded.title,
@@ -1235,6 +1372,7 @@ async function saveLandingContent(payload) {
             chip_top = excluded.chip_top,
             chip_bottom = excluded.chip_bottom,
             background_image_url = excluded.background_image_url,
+            carousel_images = excluded.carousel_images,
             is_published = excluded.is_published,
             updated_at = CURRENT_TIMESTAMP
         `,
@@ -1249,6 +1387,7 @@ async function saveLandingContent(payload) {
           normalizedContent.hero.chipTop,
           normalizedContent.hero.chipBottom,
           normalizedContent.hero.backgroundImageUrl,
+          JSON.stringify(normalizedContent.hero.carouselImages),
           normalizedContent.hero.isPublished ? 1 : 0,
         ],
       },

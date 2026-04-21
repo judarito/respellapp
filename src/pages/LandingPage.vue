@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { apiRequest, buildApiUrl, readResponsePayload } from '../lib/api'
 
@@ -28,6 +28,7 @@ const defaultLandingContent = {
     chipTop: 'Certificación y entrenamiento operativo',
     chipBottom: 'Listo para conectar CRM, cursos y ventas',
     backgroundImageUrl: '/hero-rescate.png',
+    carouselImages: ['/hero-rescate.png'],
     isPublished: true,
   },
   services: [
@@ -114,6 +115,8 @@ const defaultLandingContent = {
 const landingContent = ref(defaultLandingContent)
 const isLandingLoading = ref(true)
 const showScrollTopButton = ref(false)
+const activeHeroImageIndex = ref(0)
+let heroCarouselIntervalId = null
 
 const contactForm = reactive({
   name: '',
@@ -136,9 +139,23 @@ const featureBlocks = computed(() =>
   (landingContent.value?.featureBlocks || []).filter((item) => item.isActive),
 )
 const publicCourses = computed(() => landingContent.value?.featuredCourses || [])
+const heroCarouselImages = computed(() => {
+  const items = Array.isArray(hero.value?.carouselImages) ? hero.value.carouselImages : []
+  const normalizedItems = items.map((item) => String(item || '').trim()).filter(Boolean)
+
+  if (normalizedItems.length > 0) {
+    return normalizedItems
+  }
+
+  const fallbackImage = String(hero.value?.backgroundImageUrl || '/hero-rescate.png').trim()
+  return fallbackImage ? [fallbackImage] : ['/hero-rescate.png']
+})
+const activeHeroImage = computed(
+  () => heroCarouselImages.value[activeHeroImageIndex.value] || '/hero-rescate.png',
+)
 
 const heroPanelStyle = computed(() => ({
-  '--hero-image': `url('${hero.value.backgroundImageUrl || '/hero-rescate.png'}')`,
+  '--hero-image': `url('${activeHeroImage.value}')`,
 }))
 
 function formatDate(value) {
@@ -164,6 +181,46 @@ function scrollToTop() {
     top: 0,
     behavior: 'smooth',
   })
+}
+
+function goToHeroImage(index) {
+  if (!heroCarouselImages.value.length) {
+    activeHeroImageIndex.value = 0
+    return
+  }
+
+  const normalizedIndex =
+    ((index % heroCarouselImages.value.length) + heroCarouselImages.value.length) %
+    heroCarouselImages.value.length
+
+  activeHeroImageIndex.value = normalizedIndex
+}
+
+function showPreviousHeroImage() {
+  goToHeroImage(activeHeroImageIndex.value - 1)
+}
+
+function showNextHeroImage() {
+  goToHeroImage(activeHeroImageIndex.value + 1)
+}
+
+function startHeroCarouselAutoplay() {
+  stopHeroCarouselAutoplay()
+
+  heroCarouselIntervalId = window.setInterval(() => {
+    if (heroCarouselImages.value.length < 2) {
+      return
+    }
+
+    showNextHeroImage()
+  }, 5000)
+}
+
+function stopHeroCarouselAutoplay() {
+  if (heroCarouselIntervalId !== null) {
+    window.clearInterval(heroCarouselIntervalId)
+    heroCarouselIntervalId = null
+  }
 }
 
 async function loadLanding() {
@@ -224,12 +281,25 @@ async function handleSubmit() {
 
 onMounted(() => {
   loadLanding()
+  startHeroCarouselAutoplay()
   updateScrollTopButtonVisibility()
   window.addEventListener('scroll', updateScrollTopButtonVisibility, { passive: true })
 })
 
 onBeforeUnmount(() => {
+  stopHeroCarouselAutoplay()
   window.removeEventListener('scroll', updateScrollTopButtonVisibility)
+})
+
+watch(heroCarouselImages, (images) => {
+  if (!images.length) {
+    activeHeroImageIndex.value = 0
+    return
+  }
+
+  if (activeHeroImageIndex.value >= images.length) {
+    activeHeroImageIndex.value = 0
+  }
 })
 </script>
 
@@ -284,9 +354,28 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="hero-visual" aria-hidden="true">
+        <div class="hero-visual">
           <div class="hero-chip chip-top">{{ hero.chipTop || 'Certificación y entrenamiento operativo' }}</div>
           <div class="hero-chip chip-bottom">{{ hero.chipBottom || 'Listo para conectar CRM, cursos y ventas' }}</div>
+          <div v-if="heroCarouselImages.length > 1" class="hero-carousel-controls">
+            <button class="hero-carousel-arrow" type="button" aria-label="Imagen anterior" @click="showPreviousHeroImage">
+              ‹
+            </button>
+            <div class="hero-carousel-dots" aria-label="Seleccionar imagen del carrusel">
+              <button
+                v-for="(imageUrl, index) in heroCarouselImages"
+                :key="`${imageUrl}-${index}`"
+                class="hero-carousel-dot"
+                :class="{ 'is-active': index === activeHeroImageIndex }"
+                type="button"
+                :aria-label="`Ver imagen ${index + 1}`"
+                @click="goToHeroImage(index)"
+              ></button>
+            </div>
+            <button class="hero-carousel-arrow" type="button" aria-label="Siguiente imagen" @click="showNextHeroImage">
+              ›
+            </button>
+          </div>
         </div>
       </section>
 

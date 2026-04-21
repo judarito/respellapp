@@ -2,6 +2,12 @@
 import { onMounted, reactive, ref } from 'vue'
 import { apiRequest } from '../../lib/api'
 
+const HERO_CAROUSEL_LIMIT = 5
+const HERO_IMAGE_MAX_SIZE_MB = 5
+const HERO_IMAGE_MAX_SIZE_BYTES = HERO_IMAGE_MAX_SIZE_MB * 1024 * 1024
+const HERO_IMAGE_MIN_WIDTH = 1600
+const HERO_IMAGE_MIN_HEIGHT = 900
+
 const isLoading = ref(false)
 const isSaving = ref(false)
 const isUploadingHero = ref(false)
@@ -45,6 +51,7 @@ function createDefaultLandingForm() {
       chipTop: '',
       chipBottom: '',
       backgroundImageUrl: '',
+      carouselImages: [],
       isPublished: true,
     },
     services: [],
@@ -102,9 +109,17 @@ function setFeedback(message, state = 'success') {
 
 function assignLandingContent(payload) {
   const defaults = createDefaultLandingForm()
+  const heroPayload = payload?.hero || {}
+  const heroCarouselImages = normalizeHeroCarouselImages(
+    heroPayload.carouselImages,
+    heroPayload.backgroundImageUrl,
+  )
 
   Object.assign(landingForm.settings, defaults.settings, payload?.settings || {})
-  Object.assign(landingForm.hero, defaults.hero, payload?.hero || {})
+  Object.assign(landingForm.hero, defaults.hero, heroPayload, {
+    backgroundImageUrl: heroCarouselImages[0] || heroPayload.backgroundImageUrl || '',
+    carouselImages: heroCarouselImages,
+  })
 
   landingForm.services.splice(
     0,
@@ -178,9 +193,17 @@ async function handleSave() {
   feedbackState.value = 'idle'
 
   try {
+    const heroCarouselImages = normalizeHeroCarouselImages(
+      landingForm.hero.carouselImages,
+      landingForm.hero.backgroundImageUrl,
+    )
     const payload = {
       settings: { ...landingForm.settings },
-      hero: { ...landingForm.hero },
+      hero: {
+        ...landingForm.hero,
+        backgroundImageUrl: heroCarouselImages[0] || '',
+        carouselImages: heroCarouselImages,
+      },
       services: landingForm.services.map((item) => ({
         title: item.title,
         description: item.description,
@@ -230,30 +253,67 @@ async function handleSave() {
 }
 
 async function handleHeroImageSelected(event) {
-  const file = event.target.files?.[0]
+  const files = Array.from(event.target.files || [])
 
-  if (!file) {
+  if (!files.length) {
     return
+  }
+
+  const currentImages = normalizeHeroCarouselImages(
+    landingForm.hero.carouselImages,
+    landingForm.hero.backgroundImageUrl,
+  )
+  const availableSlots = HERO_CAROUSEL_LIMIT - currentImages.length
+
+  if (availableSlots <= 0) {
+    setFeedback(`Solo puedes tener hasta ${HERO_CAROUSEL_LIMIT} imágenes en el carrusel.`, 'error')
+    event.target.value = ''
+    return
+  }
+
+  const selectedFiles = files.slice(0, availableSlots)
+
+  if (selectedFiles.length < files.length) {
+    setFeedback(
+      `Solo se cargarán ${availableSlots} imagen(es) porque el carrusel admite máximo ${HERO_CAROUSEL_LIMIT}.`,
+      'error',
+    )
   }
 
   isUploadingHero.value = true
 
   try {
-    const fileDataUrl = await readFileAsDataUrl(file)
-    const result = await apiRequest('/api/admin/uploads/image', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        fileDataUrl,
-        fileName: file.name,
-        folder: 'respell/landing/hero',
-      }),
-    })
+    const uploadedUrls = []
 
-    landingForm.hero.backgroundImageUrl = result.item?.secureUrl || ''
-    setFeedback('Imagen del encabezado subida correctamente.')
+    for (const file of selectedFiles) {
+      await validateHeroImageFile(file)
+
+      const fileDataUrl = await readFileAsDataUrl(file)
+      const result = await apiRequest('/api/admin/uploads/image', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileDataUrl,
+          fileName: file.name,
+          folder: 'respell/landing/hero',
+        }),
+      })
+
+      if (result.item?.secureUrl) {
+        uploadedUrls.push(result.item.secureUrl)
+      }
+    }
+
+    const nextImages = normalizeHeroCarouselImages([...currentImages, ...uploadedUrls])
+    landingForm.hero.carouselImages = nextImages
+    landingForm.hero.backgroundImageUrl = nextImages[0] || ''
+    setFeedback(
+      uploadedUrls.length === 1
+        ? 'Imagen del carrusel subida correctamente.'
+        : `${uploadedUrls.length} imágenes del carrusel subidas correctamente.`,
+    )
   } catch (error) {
     setFeedback(error.message || 'No fue posible subir la imagen.', 'error')
   } finally {
@@ -270,6 +330,65 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => reject(new Error('No fue posible leer el archivo seleccionado.'))
     reader.readAsDataURL(file)
   })
+}
+
+function normalizeHeroCarouselImages(items, fallbackImage = '') {
+  const normalizedItems = (Array.isArray(items) ? items : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, HERO_CAROUSEL_LIMIT)
+
+  if (normalizedItems.length > 0) {
+    return normalizedItems
+  }
+
+  const normalizedFallback = String(fallbackImage || '').trim()
+  return normalizedFallback ? [normalizedFallback] : []
+}
+
+async function validateHeroImageFile(file) {
+  if (file.size > HERO_IMAGE_MAX_SIZE_BYTES) {
+    throw new Error(`Cada imagen debe pesar máximo ${HERO_IMAGE_MAX_SIZE_MB} MB.`)
+  }
+
+  const dimensions = await readImageDimensions(file)
+
+  if (dimensions.width < HERO_IMAGE_MIN_WIDTH || dimensions.height < HERO_IMAGE_MIN_HEIGHT) {
+    throw new Error(
+      `Cada imagen debe medir al menos ${HERO_IMAGE_MIN_WIDTH}x${HERO_IMAGE_MIN_HEIGHT} px.`,
+    )
+  }
+}
+
+function readImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const image = new Image()
+
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      })
+      URL.revokeObjectURL(objectUrl)
+    }
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('No fue posible validar las dimensiones de la imagen seleccionada.'))
+    }
+
+    image.src = objectUrl
+  })
+}
+
+function removeHeroImage(index) {
+  const nextImages = normalizeHeroCarouselImages(
+    landingForm.hero.carouselImages.filter((_, itemIndex) => itemIndex !== index),
+  )
+
+  landingForm.hero.carouselImages = nextImages
+  landingForm.hero.backgroundImageUrl = nextImages[0] || ''
 }
 
 function addService() {
@@ -315,7 +434,7 @@ onMounted(loadLandingContent)
         <h3>Contenido dinámico del sitio público</h3>
         <p>
           Aquí administras el encabezado principal, el contacto, los servicios, los testimonios,
-          las métricas y los bloques de la landing, además de subir la imagen principal a
+          las métricas y los bloques de la landing, además de subir el carrusel principal a
           Cloudinary.
         </p>
       </div>
@@ -485,18 +604,47 @@ onMounted(loadLandingContent)
             <span>Chip inferior</span>
             <input v-model="landingForm.hero.chipBottom" type="text" />
           </label>
-          <label class="admin-field-wide">
-            <span>URL imagen de fondo</span>
-            <input v-model="landingForm.hero.backgroundImageUrl" type="url" placeholder="https://..." />
-          </label>
         </div>
 
         <div class="admin-upload-row">
+          <div class="admin-upload-hint">
+            Carrusel de hasta {{ HERO_CAROUSEL_LIMIT }} imágenes.
+            Recomendado: 1920x1080 px.
+            Mínimo: {{ HERO_IMAGE_MIN_WIDTH }}x{{ HERO_IMAGE_MIN_HEIGHT }} px.
+            Peso máximo: {{ HERO_IMAGE_MAX_SIZE_MB }} MB por imagen.
+          </div>
           <label class="button button-outline admin-upload-button">
-            {{ isUploadingHero ? 'Subiendo...' : 'Subir imagen del encabezado' }}
-            <input type="file" accept="image/*" :disabled="isUploadingHero" @change="handleHeroImageSelected" />
+            {{ isUploadingHero ? 'Subiendo...' : 'Subir imágenes del carrusel' }}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              :disabled="isUploadingHero || landingForm.hero.carouselImages.length >= HERO_CAROUSEL_LIMIT"
+              @change="handleHeroImageSelected"
+            />
           </label>
-          <small>{{ landingForm.hero.backgroundImageUrl || 'Aún no hay imagen subida.' }}</small>
+          <small>
+            {{
+              landingForm.hero.carouselImages.length
+                ? `${landingForm.hero.carouselImages.length} de ${HERO_CAROUSEL_LIMIT} imágenes cargadas.`
+                : 'Aún no hay imágenes cargadas.'
+            }}
+          </small>
+        </div>
+
+        <div v-if="landingForm.hero.carouselImages.length" class="admin-carousel-list">
+          <article
+            v-for="(imageUrl, index) in landingForm.hero.carouselImages"
+            :key="`${imageUrl}-${index}`"
+            class="admin-carousel-card"
+          >
+            <img :src="imageUrl" :alt="`Imagen ${index + 1} del carrusel`" class="admin-carousel-preview" />
+            <div class="admin-carousel-copy">
+              <strong>Imagen {{ index + 1 }}</strong>
+              <small>{{ imageUrl }}</small>
+            </div>
+            <button class="button button-outline" type="button" @click="removeHeroImage(index)">Quitar</button>
+          </article>
         </div>
       </section>
 
