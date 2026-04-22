@@ -41,10 +41,10 @@ onMounted(async () => {
     <div class="auth-page-card">
       <div class="auth-page-copy">
         <span class="auth-route-kicker">Respell Admin</span>
-        <h1>Acceso independiente para la operación administrativa</h1>
+        <h1>Acceso al panel de gestión comercial y operativa</h1>
         <p>
-          El login ahora vive en una ruta propia para separar claramente la experiencia pública de
-          la gestión interna.
+          Desde aquí podrás actualizar la información del sitio, gestionar cursos y dar
+          seguimiento a solicitudes e inscripciones del negocio.
         </p>
 
         <div class="auth-route-actions">

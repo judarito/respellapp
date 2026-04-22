@@ -22,7 +22,7 @@ const emit = defineEmits(['update:email', 'update:password', 'submit'])
     <div class="admin-panel-title">
       <span class="admin-panel-kicker">Acceso</span>
       <h3>Inicio de sesión administrativo</h3>
-      <p>Autenticación protegida por backend y sesión persistida con cookie HttpOnly.</p>
+      <p>Ingresa para administrar la landing, los cursos y el seguimiento comercial.</p>
     </div>
 
     <input
@@ -47,7 +47,7 @@ const emit = defineEmits(['update:email', 'update:password', 'submit'])
     </button>
 
     <p class="admin-helper">
-      Usa el usuario creado con `npm run create:admin -- correo@dominio.com tu-contraseña`.
+      Acceso exclusivo para el equipo autorizado de Respell.
     </p>
   </form>
 </template>

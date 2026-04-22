@@ -47,6 +47,11 @@ select {
   font: inherit;
 }
 
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 #app {
   min-height: 100vh;
 }
@@ -54,6 +59,7 @@ select {
 .route-shell {
   position: relative;
   min-height: 100vh;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -1485,6 +1491,8 @@ select {
 }
 
 .route-auth-shell {
+  display: grid;
+  align-items: center;
   padding: 28px;
 }
 
@@ -1494,6 +1502,7 @@ select {
   display: grid;
   grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 0.7fr);
   gap: 24px;
+  width: min(100%, 1180px);
   max-width: 1180px;
   margin: 0 auto;
   min-height: calc(100vh - 56px);
@@ -1502,6 +1511,7 @@ select {
 
 .auth-page-copy,
 .auth-page-panel {
+  min-width: 0;
   border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 30px;
   background: rgba(255, 255, 255, 0.82);
@@ -1548,6 +1558,25 @@ select {
 
 .auth-page-panel {
   padding: 18px;
+}
+
+.auth-route-actions,
+.admin-route-actions,
+.public-course-footer,
+.contact-list div,
+.admin-module-button,
+.admin-upload-hint {
+  min-width: 0;
+}
+
+.public-course-card,
+.course-detail-card,
+.admin-form-card,
+.contact-list div,
+.public-course-footer a,
+.admin-module-button,
+.admin-upload-hint {
+  overflow-wrap: anywhere;
 }
 
 .auth-page-feedback {
@@ -1867,13 +1896,22 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .auth-page-card,
   .services-grid,
   .courses-grid,
   .public-courses-grid,
   .modules-grid,
   .testimonials-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth-page-card {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    align-items: stretch;
+  }
+
+  .auth-page-copy p {
+    max-width: 100%;
   }
 
   .admin-layout,
@@ -1954,6 +1992,10 @@ select {
     padding: 10px;
   }
 
+  .route-auth-shell {
+    align-items: start;
+  }
+
   .topbar {
     flex-wrap: wrap;
     justify-content: center;
@@ -1991,6 +2033,11 @@ select {
   .admin-module-card,
   .admin-login-panel {
     padding: 22px;
+  }
+
+  .auth-page-card {
+    gap: 16px;
+    width: 100%;
   }
 
   .metrics-grid,
@@ -2088,6 +2135,15 @@ select {
 }
 
 @media (max-width: 720px) {
+  .auth-page-copy h1 {
+    font-size: clamp(1.9rem, 10vw, 2.8rem);
+  }
+
+  .auth-route-actions .button {
+    width: 100%;
+    justify-content: center;
+  }
+
   .section-heading h2,
   .contact-section h2 {
     font-size: clamp(1.8rem, 8vw, 2.5rem);

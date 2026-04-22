@@ -434,8 +434,8 @@ onMounted(loadLandingContent)
         <h3>Contenido dinámico del sitio público</h3>
         <p>
           Aquí administras el encabezado principal, el contacto, los servicios, los testimonios,
-          las métricas y los bloques de la landing, además de subir el carrusel principal a
-          Cloudinary.
+          las métricas y los bloques de la landing, además de mantener actualizado el carrusel
+          principal del sitio.
         </p>
       </div>
     </div>
