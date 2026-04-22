@@ -34,6 +34,9 @@ const allowedEnrollmentStatuses = new Set([
   'rejected',
 ])
 const maxJsonBodySize = 20_000_000
+const publicLandingCacheTtlMs = Number(process.env.PUBLIC_LANDING_CACHE_TTL_MS || 300_000)
+const publicLandingBrowserMaxAgeSeconds = Number(process.env.PUBLIC_LANDING_BROWSER_MAX_AGE || 60)
+const publicLandingBrowserSwrSeconds = Number(process.env.PUBLIC_LANDING_BROWSER_SWR || 300)
 
 if (!tursoUrl || !tursoToken) {
   throw new Error('Missing TURSO_URL or TURSO_TOKEN in environment variables.')
@@ -43,6 +46,61 @@ const db = createClient({
   url: tursoUrl,
   authToken: tursoToken,
 })
+
+const responseCache = {
+  publicLanding: {
+    value: null,
+    etag: null,
+    expiresAt: 0,
+    updatedAt: 0,
+  },
+}
+
+function invalidatePublicLandingCache() {
+  responseCache.publicLanding.value = null
+  responseCache.publicLanding.etag = null
+  responseCache.publicLanding.expiresAt = 0
+  responseCache.publicLanding.updatedAt = 0
+}
+
+function getPublicLandingCacheHeaders(etag) {
+  return {
+    'Cache-Control': `public, max-age=${publicLandingBrowserMaxAgeSeconds}, stale-while-revalidate=${publicLandingBrowserSwrSeconds}`,
+    ETag: etag,
+  }
+}
+
+async function getPublicLandingPayload() {
+  const now = Date.now()
+  const cachedEntry = responseCache.publicLanding
+
+  if (cachedEntry.value && cachedEntry.expiresAt > now) {
+    return cachedEntry
+  }
+
+  const [landingContent, featuredCourses] = await Promise.all([
+    loadLandingContent(),
+    loadFeaturedCourses(3),
+  ])
+
+  const payload = {
+    ok: true,
+    ...landingContent,
+    featuredCourses,
+  }
+
+  const etag = `"landing-${crypto
+    .createHash('sha1')
+    .update(JSON.stringify(payload))
+    .digest('hex')}"`
+
+  cachedEntry.value = payload
+  cachedEntry.etag = etag
+  cachedEntry.updatedAt = now
+  cachedEntry.expiresAt = now + publicLandingCacheTtlMs
+
+  return cachedEntry
+}
 
 async function ensureTableColumn(tableName, columnName, alterStatement) {
   const result = await db.execute(`PRAGMA table_info(${tableName})`)
@@ -1441,6 +1499,7 @@ async function saveLandingContent(payload) {
     'write',
   )
 
+  invalidatePublicLandingCache()
   return loadLandingContent()
 }
 
@@ -2069,16 +2128,9 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/api/public/landing') {
     try {
-      const [landingContent, featuredCourses] = await Promise.all([
-        loadLandingContent(),
-        loadFeaturedCourses(3),
-      ])
+      const cachedLanding = await getPublicLandingPayload()
 
-      return sendJson(req, res, 200, {
-        ok: true,
-        ...landingContent,
-        featuredCourses,
-      })
+      return sendJson(req, res, 200, cachedLanding.value, getPublicLandingCacheHeaders(cachedLanding.etag))
     } catch (error) {
       console.error('Error loading public landing content:', error)
       return sendJson(req, res, 500, {
@@ -2717,6 +2769,7 @@ const server = http.createServer(async (req, res) => {
         ],
       })
 
+      invalidatePublicLandingCache()
       const details = await loadCourseDetails(Number(result.lastInsertRowid))
 
       return sendJson(req, res, 201, {
@@ -2840,6 +2893,7 @@ const server = http.createServer(async (req, res) => {
         ],
       })
 
+      invalidatePublicLandingCache()
       const details = await loadCourseDetails(courseId)
 
       return sendJson(req, res, 200, {
@@ -2931,6 +2985,7 @@ const server = http.createServer(async (req, res) => {
         args: [Number(result.lastInsertRowid)],
       })
 
+      invalidatePublicLandingCache()
       return sendJson(req, res, 201, {
         ok: true,
         message: 'Cohorte creada correctamente.',
@@ -3031,6 +3086,7 @@ const server = http.createServer(async (req, res) => {
         args: [cohortId],
       })
 
+      invalidatePublicLandingCache()
       return sendJson(req, res, 200, {
         ok: true,
         message: 'Cohorte actualizada correctamente.',
